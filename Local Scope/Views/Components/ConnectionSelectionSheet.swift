@@ -2,8 +2,6 @@
 //  ConnectionSelectionSheet.swift
 //  Local Scope
 //
-//  ОКНО ВЫБОРА СЕРВИСА (при двойном клике)
-//
 
 import SwiftUI
 
@@ -45,7 +43,6 @@ struct ConnectionSelectionSheet: View {
             
             // СПИСОК СЕРВИСОВ
             if device.availableServices.isEmpty {
-                // НЕТ СЕРВИСОВ
                 Spacer()
                 VStack(spacing: 16) {
                     Image(systemName: "wifi.slash")
@@ -60,7 +57,6 @@ struct ConnectionSelectionSheet: View {
                 }
                 Spacer()
             } else {
-                // ЕСТЬ СЕРВИСЫ
                 ScrollView {
                     VStack(spacing: 16) {
                         Text("Available Services")

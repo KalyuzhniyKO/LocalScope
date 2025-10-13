@@ -25,7 +25,7 @@ struct ContentView: View {
     @State private var ftpServiceType: ServiceType = .ftp
     @State private var ftpCredentials: ConnectionCredentials?
     
-    // RDP
+    // RDP Viewer
     @State private var showRDP = false
     @State private var rdpDevice: Device?
     @State private var rdpCredentials: ConnectionCredentials?
@@ -131,7 +131,7 @@ struct ContentView: View {
                 }
                 .tag(4)
                 
-                // MARK: - Sessions Tab (НОВАЯ ВКЛАДКА!)
+                // MARK: - Sessions Tab
                 SessionsView(
                     sessions: viewModel.savedSessions,
                     onConnect: { session in
@@ -172,7 +172,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 900, minHeight: 650)
         
-        // MARK: - Connection Selection Sheet
+        // MARK: - Sheets
         .sheet(isPresented: $showConnectionSheet) {
             if let device = selectedDevice {
                 ConnectionSelectionSheet(
@@ -184,8 +184,6 @@ struct ContentView: View {
                 )
             }
         }
-        
-        // MARK: - Add Device Sheet
         .sheet(isPresented: $showAddDeviceSheet) {
             AddDeviceSheet(
                 serviceType: addDeviceServiceType,
@@ -195,8 +193,6 @@ struct ContentView: View {
                 }
             )
         }
-        
-        // MARK: - Credentials Input Sheet
         .sheet(isPresented: $showCredentialsSheet) {
             if let (device, service) = pendingConnection {
                 CredentialsInputSheet(
@@ -205,26 +201,26 @@ struct ContentView: View {
                     onConnect: { credentials in
                         showCredentialsSheet = false
                         performConnectionWithCredentials(device: device, service: service, credentials: credentials)
+                    },
+                    onSaveSession: { name, credentials in
+                        showCredentialsSheet = false
+                        let session = SavedSession(name: name, device: device, serviceType: service, credentials: credentials)
+                        viewModel.addSession(session)
+                        performConnectionWithCredentials(device: device, service: service, credentials: credentials)
                     }
                 )
             }
         }
-        
-        // MARK: - SSH Terminal Sheet
         .sheet(isPresented: $showSSHTerminal) {
             if let device = sshDevice {
                 SSHTerminalView(device: device, credentials: sshCredentials)
             }
         }
-        
-        // MARK: - FTP/SFTP File Manager Sheet
         .sheet(isPresented: $showFileManager) {
             if let device = ftpDevice {
                 FTPFileManagerView(device: device, serviceType: ftpServiceType, credentials: ftpCredentials)
             }
         }
-        
-        // MARK: - RDP Viewer Sheet (НОВЫЙ!)
         .sheet(isPresented: $showRDP) {
             if let device = rdpDevice {
                 RDPViewerView(device: device, credentials: rdpCredentials)
@@ -232,9 +228,8 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Handle Device Selection
+    // MARK: - Handlers
     private func handleDeviceSelection(_ device: Device) {
-        // Если роутер - открыть в браузере
         if device.name.contains("Router") {
             if let url = URL(string: "http://\(device.ip)") {
                 NSWorkspace.shared.open(url)
@@ -242,42 +237,38 @@ struct ContentView: View {
             return
         }
         
-        // Иначе показать окно выбора
         selectedDevice = device
         showConnectionSheet = true
     }
     
-    // MARK: - Handle Connection
     private func handleConnection(device: Device, service: ServiceType) {
-        // Проверяем, есть ли сохранённые credentials для этого устройства
         if let savedCreds = viewModel.getCredentials(for: device, service: service) {
             performConnectionWithCredentials(device: device, service: service, credentials: savedCreds)
         } else {
-            // Запрашиваем credentials
             pendingConnection = (device, service)
             showCredentialsSheet = true
         }
     }
     
-    // MARK: - Perform Connection
     private func performConnectionWithCredentials(device: Device, service: ServiceType, credentials: ConnectionCredentials) {
+        if credentials.saveCredentials {
+            viewModel.saveCredentials(credentials, for: device, service: service)
+        }
+        
         switch service {
         case .ssh:
             sshDevice = device
             sshCredentials = credentials
             showSSHTerminal = true
-            
         case .ftp, .sftp:
             ftpDevice = device
             ftpServiceType = service
             ftpCredentials = credentials
             showFileManager = true
-            
         case .rdp:
             rdpDevice = device
             rdpCredentials = credentials
             showRDP = true
-            
         case .vnc:
             if let url = URL(string: "vnc://\(device.ip)") {
                 NSWorkspace.shared.open(url)
@@ -285,7 +276,6 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Handle Session Connect
     private func handleSessionConnect(_ session: SavedSession) {
         performConnectionWithCredentials(
             device: session.device,
@@ -293,20 +283,4 @@ struct ContentView: View {
             credentials: session.credentials
         )
     }
-}
-
-// MARK: - Connection Credentials
-struct ConnectionCredentials: Codable {
-    var username: String
-    var password: String
-    var saveCredentials: Bool
-}
-
-// MARK: - Saved Session
-struct SavedSession: Identifiable, Codable {
-    let id = UUID()
-    let name: String
-    let device: Device
-    let serviceType: ServiceType
-    let credentials: ConnectionCredentials
 }

@@ -2,8 +2,6 @@
 //  InteractiveNetworkCanvas.swift
 //  Local Scope
 //
-//  Интерактивная карта сети с контекстным меню
-//
 
 import SwiftUI
 
@@ -37,12 +35,10 @@ struct InteractiveNetworkCanvas: View {
                             onDeviceSelect(device)
                         }
                         .contextMenu {
-                            // КОНТЕКСТНОЕ МЕНЮ (встроенное)
                             if device.availableServices.isEmpty {
                                 Text("No services available")
                                     .foregroundStyle(.secondary)
                             } else {
-                                // Секция: Подключение
                                 ForEach(device.availableServices, id: \.self) { service in
                                     Button {
                                         onDeviceConnect?(device, service)
@@ -53,7 +49,6 @@ struct InteractiveNetworkCanvas: View {
                                 
                                 Divider()
                                 
-                                // Секция: Избранное
                                 ForEach(device.availableServices, id: \.self) { service in
                                     Button {
                                         onAddToFavorites?(device, service)
@@ -71,7 +66,6 @@ struct InteractiveNetworkCanvas: View {
         }
     }
     
-    // MARK: - Drawing Functions
     private func drawBackground(context: GraphicsContext, size: CGSize, center: CGPoint, radius: CGFloat, deviceCount: Int) {
         // Пульсирующие круги
         for i in 1...3 {
