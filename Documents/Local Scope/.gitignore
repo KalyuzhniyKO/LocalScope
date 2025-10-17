@@ -1,0 +1,16 @@
+.DS_Store
+*.zsh_history
+*.pdf
+**/.DS_Store
+*.zsh_history
+*.pdf
+.CFUserTextEncoding
+.config/
+.cups/
+.local/
+.omnissa/
+.swiftpm/
+.viminfo
+.zprofile
+.zsh_sessions/
+*.xcuserstate
