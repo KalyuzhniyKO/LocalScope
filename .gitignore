@@ -1,1 +1,27 @@
+# Xcode
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcworkspace/xcuserdata/
+
+# macOS
 .DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+
+# System files
+*.swp
+*.swo
+*~
+.viminfo
+.zsh_history
+.zsh_sessions/
+.CFUserTextEncoding
+
+# Documents
+*.pdf
+*.docx
