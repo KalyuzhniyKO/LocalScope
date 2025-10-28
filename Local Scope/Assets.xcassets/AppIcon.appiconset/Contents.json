@@ -1,0 +1,68 @@
+{
+  "images" : [
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "16x16"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 1.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "16x16"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 2.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "32x32"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 3.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "32x32"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 5.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "128x128"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 4.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "128x128"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 8.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "256x256"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 6.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "256x256"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 7.png",
+      "idiom" : "mac",
+      "scale" : "1x",
+      "size" : "512x512"
+    },
+    {
+      "filename" : "ChatGPT Image 15 дек. 2025 г., 09_15_54 9.png",
+      "idiom" : "mac",
+      "scale" : "2x",
+      "size" : "512x512"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
