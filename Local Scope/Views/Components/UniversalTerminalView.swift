@@ -2,9 +2,10 @@
 //  UniversalTerminalView.swift
 //  Local Scope
 //
-//  ✅ ВСТРОЕННЫЕ СЕССИИ ВНУТРИ ПРИЛОЖЕНИЯ:
-//  - SSH / FTP / SFTP → встроенная shell-сессия в окне Local Scope
-//  - RDP / VNC → внутренняя проверка доступности и статус подключения
+//  Текущий runtime-подход:
+//  - SSH / SFTP → системный Terminal + ssh/sftp
+//  - FTP → системный macOS handler для ftp://
+//  - RDP / VNC → зарегистрированные системные клиенты / handlers
 //
 
 import SwiftUI
@@ -16,7 +17,7 @@ struct UniversalTerminalView: View {
     let serviceType: ServiceType
     let credentials: ConnectionCredentials?
     @Environment(\.dismiss) var dismiss
-    
+
     @State private var connectionStatus: String = "Готов к подключению"
     @State private var isConnecting = false
     @State private var terminalOutput = ""
@@ -220,7 +221,7 @@ struct UniversalTerminalView: View {
         if serviceType == .ssh || serviceType == .ftp || serviceType == .sftp {
             VStack(spacing: 12) {
                 ScrollView {
-                    Text(terminalOutput.isEmpty ? "Ожидание запуска встроенной сессии..." : terminalOutput)
+                    Text(terminalOutput.isEmpty ? "Ожидание запуска системного клиента..." : terminalOutput)
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(.green)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -231,7 +232,7 @@ struct UniversalTerminalView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
 
                 HStack(spacing: 12) {
-                    TextField("Введите команду или пароль и нажмите Send", text: $terminalInput)
+                    TextField("Ввод доступен только для встроенных сессий", text: $terminalInput)
                         .textFieldStyle(.roundedBorder)
 
                     Button("Send") {
@@ -290,11 +291,11 @@ struct UniversalTerminalView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                Label("Внешние приложения не используются.", systemImage: "internaldrive")
+                Label("Используется системный клиент macOS.", systemImage: "link")
                     .font(.headline)
                     .foregroundStyle(.white)
 
-                Text("Для \(serviceType.rawValue) сейчас выполняется внутренняя проверка доступности сервиса и подготовка параметров подключения прямо в окне Local Scope.")
+                Text("Для \(serviceType.rawValue) Local Scope запускает системный клиент или системный URL handler, чтобы подключение действительно открывалось.")
                     .foregroundStyle(.white.opacity(0.8))
 
                 HStack(spacing: 12) {
@@ -320,18 +321,9 @@ struct UniversalTerminalView: View {
     
     // MARK: - Auto Connect
     private func autoConnect() {
-        if serviceType == .vnc,
-           VNCNativeBridge.shared.status.isAvailable,
-           let controller = vncNativeController {
-            Task {
-                await controller.connect()
-            }
-            return
-        }
-
         Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
-            runCurrentPlan()
+            connectCurrentService()
         }
     }
 
@@ -350,14 +342,140 @@ struct UniversalTerminalView: View {
     
     // MARK: - Connection Methods (ВНУТРИ ПРИЛОЖЕНИЯ)
     private func connectSSH() {
-        runCurrentPlan()
+        connectCurrentService()
     }
     
     private func connectRDP() {
-        runCurrentPlan()
+        connectCurrentService()
     }
     
     private func connectVNC() {
+        connectCurrentService()
+    }
+
+    private func connectFTP() {
+        connectCurrentService()
+    }
+
+    private func connectCurrentService() {
+        stopSession()
+        terminalOutput = ""
+
+        switch serviceType {
+        case .ssh:
+            openSSHInTerminal()
+        case .sftp:
+            openSFTPInTerminal()
+        case .ftp:
+            openFTPHandler()
+        case .rdp:
+            openRDPClient()
+        case .vnc:
+            openVNCClient()
+        }
+    }
+
+    private func openSSHInTerminal() {
+        guard let credentials else {
+            connectionStatus = "❌ Для SSH нужны учётные данные"
+            return
+        }
+
+        isConnecting = true
+        terminalOutput = "local-scope> ssh -tt -o StrictHostKeyChecking=accept-new -p \(serviceType.port) '\(credentials.username)@\(device.ip)'\n"
+
+        Task {
+            let client = SSHClient(
+                host: device.ip,
+                username: credentials.username,
+                password: credentials.password,
+                port: serviceType.port
+            )
+            await client.connect()
+            await MainActor.run {
+                connectionStatus = client.connectionStatus
+                isConnecting = false
+                terminalOutput += client.connectionStatus + "\n"
+            }
+        }
+    }
+
+    private func openSFTPInTerminal() {
+        guard let credentials else {
+            connectionStatus = "❌ Для SFTP нужны учётные данные"
+            return
+        }
+
+        isConnecting = true
+        terminalOutput = "local-scope> sftp -P 22 '\(credentials.username)@\(device.ip)'\n"
+
+        Task {
+            let client = FTPClient(
+                host: device.ip,
+                username: credentials.username,
+                password: credentials.password,
+                port: 22,
+                useSFTP: true
+            )
+            await client.connect()
+            await MainActor.run {
+                connectionStatus = client.connectionStatus
+                isConnecting = false
+                terminalOutput += client.connectionStatus + "\n"
+            }
+        }
+    }
+
+    private func openFTPHandler() {
+        guard let credentials else {
+            connectionStatus = "❌ Для FTP нужны учётные данные"
+            return
+        }
+
+        isConnecting = true
+        terminalOutput = "local-scope> open ftp://\(device.ip):21\n"
+
+        Task {
+            let client = FTPClient(
+                host: device.ip,
+                username: credentials.username,
+                password: credentials.password,
+                port: serviceType.port,
+                useSFTP: false
+            )
+            await client.connect()
+            await MainActor.run {
+                connectionStatus = client.connectionStatus
+                isConnecting = false
+                terminalOutput += client.connectionStatus + "\n"
+            }
+        }
+    }
+
+    private func openRDPClient() {
+        isConnecting = true
+        terminalOutput = "local-scope> open RDP client for \(device.ip):\(serviceType.port)\n"
+
+        Task {
+            let client = RDPClient(
+                host: device.ip,
+                username: credentials?.username ?? "",
+                password: credentials?.password ?? "",
+                port: serviceType.port
+            )
+            await client.connect()
+            await MainActor.run {
+                connectionStatus = client.connectionStatus
+                isConnecting = false
+                if let error = client.errorMessage {
+                    terminalOutput += error + "\n"
+                }
+                terminalOutput += client.connectionStatus + "\n"
+            }
+        }
+    }
+
+    private func openVNCClient() {
         if VNCNativeBridge.shared.status.isAvailable,
            let controller = vncNativeController {
             Task {
@@ -366,35 +484,21 @@ struct UniversalTerminalView: View {
             return
         }
 
-        runCurrentPlan()
-    }
-    
-    private func connectFTP() {
-        runCurrentPlan()
-    }
+        isConnecting = true
+        terminalOutput = "local-scope> open vnc://\(device.ip):\(serviceType.port)\n"
 
-    private func runCurrentPlan() {
-        Task { @MainActor in
-            let plan = executionPlan
-
-            switch plan.mode {
-            case .embeddedShell:
-                guard let command = plan.command else {
-                    connectionStatus = "❌ \(plan.summary)"
-                    return
-                }
-                startEmbeddedSession(title: plan.title, command: command)
-            case .probeOnly:
-                guard let port = plan.probePort else {
-                    connectionStatus = "❌ Для \(plan.title) не настроен probe-порт"
-                    return
-                }
-
-                isConnecting = true
-                connectionStatus = "🔍 \(plan.summary)"
-                await probePort(port: port, title: plan.title)
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+        Task {
+            let client = VNCClient(
+                host: device.ip,
+                username: credentials?.username,
+                password: credentials?.password,
+                port: serviceType.port
+            )
+            await client.connect()
+            await MainActor.run {
+                connectionStatus = client.connectionStatus
                 isConnecting = false
+                terminalOutput += client.connectionStatus + "\n"
             }
         }
     }

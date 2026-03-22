@@ -81,17 +81,23 @@ final class RDPClient {
 
         do {
             let fileURL = try createRDPFile()
-            NSWorkspace.shared.open(fileURL)
+            let opened = NSWorkspace.shared.open(fileURL)
+
+            guard opened else {
+                throw NSError(domain: "LocalScope.RDP", code: 1, userInfo: [NSLocalizedDescriptionKey: "В системе нет обработчика .rdp файлов"])
+            }
 
             try? await Task.sleep(nanoseconds: 500_000_000)
             isConnected = true
-            connectionStatus = "✅ RDP файл открыт"
+            connectionStatus = "✅ RDP клиент открыт"
         } catch {
             if let fallbackURL = makeLegacyRDPURL() {
-                NSWorkspace.shared.open(fallbackURL)
+                let opened = NSWorkspace.shared.open(fallbackURL)
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                isConnected = true
-                connectionStatus = "✅ RDP URL открыт"
+                isConnected = opened
+                connectionStatus = opened
+                    ? "✅ RDP URL открыт"
+                    : "❌ Не удалось открыть RDP URL"
             } else {
                 isConnected = false
                 errorMessage = error.localizedDescription

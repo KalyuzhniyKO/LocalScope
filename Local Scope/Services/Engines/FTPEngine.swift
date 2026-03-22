@@ -21,9 +21,9 @@ struct FTPEngine: ProtocolEngine {
                 serviceType: .ftp,
                 mode: .embeddedShell,
                 title: "FTP",
-                command: "ftp \(shellQuoted(device.ip)) 21",
+                command: "open ftp://\(device.ip):21",
                 probePort: nil,
-                summary: "Встроенная FTP shell-сессия будет запущена прямо внутри Local Scope."
+                summary: "FTP URL будет открыт системным macOS handler."
             )
         case .sftp:
             let target = username.isEmpty ? shellQuoted(device.ip) : "\(shellQuoted(username))@\(shellQuoted(device.ip))"
@@ -33,7 +33,7 @@ struct FTPEngine: ProtocolEngine {
                 title: "SFTP",
                 command: "sftp -P 22 \(target)",
                 probePort: nil,
-                summary: "Встроенная SFTP shell-сессия будет запущена прямо внутри Local Scope."
+                summary: "Системный sftp будет открыт через Terminal."
             )
         default:
             return ProtocolExecutionPlan(

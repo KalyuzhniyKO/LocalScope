@@ -63,7 +63,7 @@ enum ServiceType: String, Codable, CaseIterable, Identifiable, Sendable, Hashabl
     }
 
     var hasFullInAppEngine: Bool {
-        engineProfile.currentState == .integrated
+        runtimeProcedure.supportsFullInAppSession
     }
 
     var preferredOpenSourceEngine: String? {
@@ -74,38 +74,38 @@ enum ServiceType: String, Codable, CaseIterable, Identifiable, Sendable, Hashabl
         switch self {
         case .ssh:
             return ProtocolEngineProfile(
-                currentEngineName: "Embedded SSH Shell",
+                currentEngineName: "System SSH Client",
                 currentState: .integrated,
                 preferredOpenSourceEngine: "libssh2",
-                adoptionNotes: "Сейчас используется встроенная shell-сессия Local Scope через системный ssh; оптимальный следующий шаг для нативного SSH-движка — libssh2."
+                adoptionNotes: "Сейчас SSH открывается через системный ssh в Terminal. Для полностью нативного in-app SSH движка следующим шагом остаётся libssh2."
             )
         case .ftp:
             return ProtocolEngineProfile(
-                currentEngineName: "Embedded FTP Shell",
+                currentEngineName: "System FTP Handler",
                 currentState: .integrated,
                 preferredOpenSourceEngine: nil,
-                adoptionNotes: "Сейчас используется встроенная shell-сессия Local Scope через системный ftp."
+                adoptionNotes: "Сейчас FTP открывается через системный macOS handler для ftp:// URL, потому что системный бинарь ftp на современных macOS может отсутствовать."
             )
         case .sftp:
             return ProtocolEngineProfile(
-                currentEngineName: "Embedded SFTP Shell",
+                currentEngineName: "System SFTP Client",
                 currentState: .integrated,
                 preferredOpenSourceEngine: "libssh2",
-                adoptionNotes: "Сейчас используется встроенная shell-сессия Local Scope через системный sftp; оптимальный следующий шаг для нативного SFTP/SSH-движка — libssh2."
+                adoptionNotes: "Сейчас SFTP открывается через системный sftp в Terminal; оптимальный следующий шаг для нативного SFTP/SSH-движка — libssh2."
             )
         case .rdp:
             return ProtocolEngineProfile(
-                currentEngineName: "Internal RDP Probe",
-                currentState: .planned,
+                currentEngineName: "System RDP Launcher",
+                currentState: .integrated,
                 preferredOpenSourceEngine: "FreeRDP",
-                adoptionNotes: "Пока что выполняется только внутренняя проверка RDP-порта. Оптимальный полноценный in-app движок для RDP — FreeRDP."
+                adoptionNotes: "Сейчас RDP открывается через зарегистрированный macOS RDP-клиент (.rdp файл / rdp://). Для полностью нативного in-app клиента следующим шагом остаётся FreeRDP."
             )
         case .vnc:
             return ProtocolEngineProfile(
-                currentEngineName: "Internal VNC Probe",
-                currentState: .planned,
+                currentEngineName: "System VNC Client",
+                currentState: .integrated,
                 preferredOpenSourceEngine: "LibVNCClient",
-                adoptionNotes: "Пока что выполняется только внутренняя проверка VNC-порта. Технически оптимальный кандидат для полноценного VNC-клиента — LibVNCClient, но его лицензию нужно отдельно оценить перед внедрением."
+                adoptionNotes: "Сейчас VNC открывается через Screen Sharing или нативный bridge, если он будет подключён. Полностью нативный VNC-клиент по-прежнему требует отдельной интеграции LibVNCClient."
             )
         }
     }
@@ -115,37 +115,37 @@ enum ServiceType: String, Codable, CaseIterable, Identifiable, Sendable, Hashabl
         case .ssh:
             return ProtocolRuntimeProcedure(
                 worksOutOfBoxOnMac: true,
-                supportsFullInAppSession: true,
+                supportsFullInAppSession: false,
                 primaryActionTitle: "Connect",
-                userFacingMessage: "На macOS должен работать из коробки через встроенную shell-сессию и системный ssh."
+                userFacingMessage: "На macOS SSH открывается через системный ssh в Terminal, чтобы подключение реально запускалось."
             )
         case .ftp:
             return ProtocolRuntimeProcedure(
                 worksOutOfBoxOnMac: true,
-                supportsFullInAppSession: true,
+                supportsFullInAppSession: false,
                 primaryActionTitle: "Connect",
-                userFacingMessage: "На macOS должен работать из коробки через встроенную shell-сессию и системный ftp."
+                userFacingMessage: "На macOS FTP открывается через системный обработчик ftp://, потому что встроенный ftp-бинарь может отсутствовать."
             )
         case .sftp:
             return ProtocolRuntimeProcedure(
                 worksOutOfBoxOnMac: true,
-                supportsFullInAppSession: true,
+                supportsFullInAppSession: false,
                 primaryActionTitle: "Connect",
-                userFacingMessage: "На macOS должен работать из коробки через встроенную shell-сессию и системный sftp."
+                userFacingMessage: "На macOS SFTP открывается через системный sftp в Terminal."
             )
         case .rdp:
             return ProtocolRuntimeProcedure(
-                worksOutOfBoxOnMac: false,
+                worksOutOfBoxOnMac: true,
                 supportsFullInAppSession: false,
-                primaryActionTitle: "Check",
-                userFacingMessage: "Полноценный RDP-сеанс без сторонних приложений ещё не встроен: сейчас доступна только внутренняя проверка порта."
+                primaryActionTitle: "Connect",
+                userFacingMessage: "На macOS RDP открывается через зарегистрированный RDP клиент, если он установлен в системе."
             )
         case .vnc:
             return ProtocolRuntimeProcedure(
-                worksOutOfBoxOnMac: false,
+                worksOutOfBoxOnMac: true,
                 supportsFullInAppSession: false,
-                primaryActionTitle: "Check",
-                userFacingMessage: "Полноценный VNC-сеанс без сторонних приложений ещё не встроен: сейчас доступна только внутренняя проверка порта."
+                primaryActionTitle: "Connect",
+                userFacingMessage: "На macOS VNC открывается через Screen Sharing или нативный bridge, если он подключён."
             )
         }
     }

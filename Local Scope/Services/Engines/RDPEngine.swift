@@ -15,7 +15,7 @@ struct RDPEngine: ProtocolEngine {
             title: "RDP",
             command: nil,
             probePort: 3389,
-            summary: "Пока что для RDP доступен безопасный in-app probe режим. Нативный клиент будет подключён отдельным engine-адаптером."
+            summary: "RDP будет открыт через зарегистрированный macOS RDP клиент (.rdp файл / rdp://)."
         )
     }
 }

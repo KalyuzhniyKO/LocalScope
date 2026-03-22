@@ -17,7 +17,7 @@ struct VNCEngine: ProtocolEngine {
             title: "VNC",
             command: nil,
             probePort: 5900,
-            summary: "Пока что для VNC доступен безопасный in-app probe режим. \(bridgeSummary)"
+            summary: "VNC будет открыт через Screen Sharing или нативный bridge, если он подключён. \(bridgeSummary)"
         )
     }
 }
