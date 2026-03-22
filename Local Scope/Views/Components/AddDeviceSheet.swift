@@ -4,17 +4,18 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct AddDeviceSheet: View {
     let serviceType: ServiceType
     let onAdd: (Device) -> Void
     @Environment(\.dismiss) var dismiss
-    
+
     @State private var deviceName: String = ""
     @State private var ipAddress: String = ""
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
-    
+
     var body: some View {
         VStack(spacing: 20) {
             HStack {
@@ -43,9 +44,9 @@ struct AddDeviceSheet: View {
             }
             .padding()
             .background(Color.gray.opacity(0.1))
-            
+
             Divider()
-            
+
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Device Name", systemImage: "tag")
@@ -53,14 +54,30 @@ struct AddDeviceSheet: View {
                     TextField("Enter device name", text: $deviceName)
                         .textFieldStyle(.roundedBorder)
                 }
-                
+
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("IP Address", systemImage: "network")
-                        .font(.headline)
+                    HStack {
+                        Label("IP Address", systemImage: "network")
+                            .font(.headline)
+                        Spacer()
+                        Button {
+                            pasteIPAddress()
+                        } label: {
+                            Label("Paste", systemImage: "doc.on.clipboard")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
                     TextField("192.168.1.100", text: $ipAddress)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: ipAddress) { newValue in
+                            let cleaned = sanitizeIPAddress(newValue)
+                            if cleaned != newValue {
+                                ipAddress = cleaned
+                            }
+                        }
                 }
-                
+
                 if showError {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -75,19 +92,19 @@ struct AddDeviceSheet: View {
                 }
             }
             .padding()
-            
+
             Spacer()
-            
+
             HStack(spacing: 12) {
                 Button("Cancel") {
                     dismiss()
                 }
                 .buttonStyle(.bordered)
-                
+
                 Button("Add Device") {
                     if validateInput() {
                         let newDevice = Device(
-                            name: deviceName.isEmpty ? "Manual Device" : deviceName,
+                            name: deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Manual Device" : deviceName.trimmingCharacters(in: .whitespacesAndNewlines),
                             ip: ipAddress,
                             mac: nil,
                             type: "Manual",
@@ -95,6 +112,7 @@ struct AddDeviceSheet: View {
                             availableServices: [serviceType]
                         )
                         onAdd(newDevice)
+                        dismiss()
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -104,24 +122,61 @@ struct AddDeviceSheet: View {
             .padding()
         }
         .frame(width: 500, height: 400)
+        .onAppear {
+            prefillIPAddressFromClipboard()
+        }
     }
-    
+
+    private func prefillIPAddressFromClipboard() {
+        guard ipAddress.isEmpty,
+              let pasted = NSPasteboard.general.string(forType: .string) else { return }
+
+        let candidate = sanitizeIPAddress(pasted)
+        if isPotentialIPAddress(candidate) {
+            ipAddress = candidate
+        }
+    }
+
+    private func pasteIPAddress() {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else {
+            errorMessage = "Clipboard does not contain text"
+            showError = true
+            return
+        }
+
+        let candidate = sanitizeIPAddress(pasted)
+        guard isPotentialIPAddress(candidate) else {
+            errorMessage = "Clipboard does not contain a valid IPv4 address"
+            showError = true
+            return
+        }
+
+        ipAddress = candidate
+        showError = false
+    }
+
+    private func sanitizeIPAddress(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { $0.isNumber || $0 == "." }
+    }
+
+    private func isPotentialIPAddress(_ value: String) -> Bool {
+        let parts = value.split(separator: ".")
+        guard parts.count == 4 else { return false }
+        return parts.allSatisfy { part in
+            guard let num = Int(part) else { return false }
+            return num >= 0 && num <= 255
+        }
+    }
+
     private func validateInput() -> Bool {
-        let parts = ipAddress.split(separator: ".")
-        guard parts.count == 4 else {
+        guard isPotentialIPAddress(ipAddress) else {
             errorMessage = "Invalid IP address format"
             showError = true
             return false
         }
-        
-        for part in parts {
-            guard let num = Int(part), num >= 0, num <= 255 else {
-                errorMessage = "Invalid IP address format"
-                showError = true
-                return false
-            }
-        }
-        
+
         showError = false
         return true
     }

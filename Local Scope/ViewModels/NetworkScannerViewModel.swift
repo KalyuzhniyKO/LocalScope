@@ -63,7 +63,7 @@ final class NetworkScannerViewModel {
             await withTaskGroup(of: Void.self) { group in
                 for context in scanContexts {
                     group.addTask {
-                        await scanner.quickPingSubnet(subnet: context.subnet)
+                        await scanner.quickPingSubnet(context: context)
                     }
                 }
             }
@@ -78,13 +78,13 @@ final class NetworkScannerViewModel {
             let probedResults = await probedDevices
             let mergedDevices = mergeDiscoveredDevices(arpResults, probedResults)
             var foundDevices = mergedDevices
-            
+            devices = foundDevices
+
             progress = 0.6
             syncStatus = "🔍 Проверка портов (\(foundDevices.count) устройств)..."
-            
-            // ✅ ПАРАЛЛЕЛЬНОЕ СКАНИРОВАНИЕ ПОРТОВ
+
             foundDevices = await portScanner.scanServicesForDevices(foundDevices)
-            
+
             devices = foundDevices
             scanning = false
             progress = 1.0
@@ -102,10 +102,7 @@ final class NetworkScannerViewModel {
         return await withTaskGroup(of: [Device].self) { group in
             for context in contexts {
                 group.addTask {
-                    await scanner.parseARPTable(
-                        subnet: context.subnet,
-                        excludeIP: context.localIP
-                    )
+                    await scanner.parseARPTable(context: context)
                 }
             }
 
@@ -123,10 +120,7 @@ final class NetworkScannerViewModel {
         return await withTaskGroup(of: [Device].self) { group in
             for context in contexts {
                 group.addTask {
-                    await scanner.discoverHostsByPortSweep(
-                        subnet: context.subnet,
-                        excludeIP: context.localIP
-                    )
+                    await scanner.discoverHostsByPortSweep(context: context)
                 }
             }
 
@@ -281,17 +275,48 @@ final class NetworkScannerViewModel {
     }
     
     func addManualDevice(_ device: Device) {
-        if !devices.contains(where: { $0.ip == device.ip }) {
-            devices.append(device)
+        if let index = devices.firstIndex(where: { $0.ip == device.ip }) {
+            devices[index] = device
+        } else {
+            devices.insert(device, at: 0)
+        }
+
+        if let historyIndex = history.firstIndex(where: { $0.ip == device.ip }) {
+            history[historyIndex] = device
+        } else {
+            history.insert(device, at: 0)
+        }
+
+        if let encoded = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(encoded, forKey: "deviceHistory")
         }
     }
     
     func rescanDevice(_ device: Device) {
         Task {
             let updatedDevice = await portScanner.scanDevice(device)
-            if let index = devices.firstIndex(where: { $0.id == device.id }) {
+
+            if let index = devices.firstIndex(where: { $0.ip == device.ip }) {
                 devices[index] = updatedDevice
+            } else {
+                devices.insert(updatedDevice, at: 0)
             }
+
+            if let historyIndex = history.firstIndex(where: { $0.ip == device.ip }) {
+                history[historyIndex] = updatedDevice
+            }
+
+            if let encoded = try? JSONEncoder().encode(history) {
+                UserDefaults.standard.set(encoded, forKey: "deviceHistory")
+            }
+
+            let portsSummary = updatedDevice.availableServices
+                .sorted { $0.port < $1.port }
+                .map { "\($0.rawValue):\($0.port)" }
+                .joined(separator: ", ")
+            syncStatus = portsSummary.isEmpty
+                ? "⚠️ Порты на \(device.ip) не обнаружены"
+                : "✅ \(device.ip): \(portsSummary)"
         }
     }
     

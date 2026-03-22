@@ -10,15 +10,20 @@ struct NetworkScanContext: Sendable, Hashable {
     let interfaceName: String
     let localIP: String
     let subnet: String
+    let cidrPrefix: Int
+    let hostRange: ClosedRange<Int>
 
     var displayName: String {
-        "\(interfaceName) • \(subnet).0/24"
+        "\(interfaceName) • \(subnet).0/\(cidrPrefix)"
+    }
+
+    func ipAddress(for suffix: Int) -> String {
+        "\(subnet).\(suffix)"
     }
 }
 
 struct NetworkScanner {
     private static let discoveryPorts = [22, 21, 53, 80, 139, 443, 445, 554, 631, 3389, 5000, 5357, 8009, 8080, 8443, 9100, 32400, 5900]
-    private static let hostSuffixes = Array(1...254)
     private static let pingBatchSize = 24
     private static let probeBatchSize = 32
     
@@ -60,13 +65,18 @@ struct NetworkScanner {
             )
 
             let localIP = String(cString: hostname)
-            guard let subnet = extractSubnet(from: localIP) else { continue }
+            guard let subnet = extractSubnet(from: localIP),
+                  let netmask = extractIPv4Address(from: interface.ifa_netmask),
+                  let cidrPrefix = cidrPrefix(from: netmask),
+                  let hostRange = hostRange(for: cidrPrefix, localIP: localIP) else { continue }
 
             contexts.append(
                 NetworkScanContext(
                     interfaceName: interfaceName,
                     localIP: localIP,
-                    subnet: subnet
+                    subnet: subnet,
+                    cidrPrefix: cidrPrefix,
+                    hostRange: hostRange
                 )
             )
         }
@@ -82,6 +92,54 @@ struct NetworkScanner {
         return parts.dropLast().joined(separator: ".")
     }
 
+    private func extractIPv4Address(from pointer: UnsafeMutablePointer<sockaddr>?) -> String? {
+        guard let pointer else { return nil }
+        guard pointer.pointee.sa_family == UInt8(AF_INET) else { return nil }
+
+        var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        getnameinfo(
+            pointer,
+            socklen_t(pointer.pointee.sa_len),
+            &hostname,
+            socklen_t(hostname.count),
+            nil,
+            socklen_t(0),
+            NI_NUMERICHOST
+        )
+
+        let address = String(cString: hostname)
+        return address.isEmpty ? nil : address
+    }
+
+    private func cidrPrefix(from netmask: String) -> Int? {
+        let octets = netmask.split(separator: ".")
+        guard octets.count == 4 else { return nil }
+
+        let bits = octets.compactMap { Int($0) }
+        guard bits.count == 4 else { return nil }
+
+        return bits.reduce(into: 0) { partial, octet in
+            partial += octet.nonzeroBitCount
+        }
+    }
+
+    private func hostRange(for cidrPrefix: Int, localIP: String) -> ClosedRange<Int>? {
+        let lastOctet = localIP.split(separator: ".").last.flatMap { Int($0) }
+        guard let lastOctet else { return nil }
+
+        let hostBits = max(0, 32 - cidrPrefix)
+        guard hostBits > 0 else { return lastOctet...lastOctet }
+
+        let suffixHostBits = min(hostBits, 8)
+        let blockSize = max(2, 1 << suffixHostBits)
+        let base = (lastOctet / blockSize) * blockSize
+        let lowerBound = max(1, base + 1)
+        let upperBound = min(254, base + blockSize - 2)
+
+        guard lowerBound <= upperBound else { return max(1, min(254, lastOctet))...max(1, min(254, lastOctet)) }
+        return lowerBound...upperBound
+    }
+
     private static func scanPriority(for interfaceName: String) -> Int {
         switch interfaceName {
         case "en0":
@@ -93,14 +151,16 @@ struct NetworkScanner {
         }
     }
     
-    func quickPingSubnet(subnet: String) async {
-        for batchStart in stride(from: 0, to: Self.hostSuffixes.count, by: Self.pingBatchSize) {
-            let batch = Self.hostSuffixes.dropFirst(batchStart).prefix(Self.pingBatchSize)
+    func quickPingSubnet(context: NetworkScanContext) async {
+        let hostSuffixes = Array(context.hostRange)
+
+        for batchStart in stride(from: 0, to: hostSuffixes.count, by: Self.pingBatchSize) {
+            let batch = hostSuffixes.dropFirst(batchStart).prefix(Self.pingBatchSize)
 
             await withTaskGroup(of: Void.self) { group in
                 for suffix in batch {
                     group.addTask {
-                        let ip = "\(subnet).\(suffix)"
+                        let ip = context.ipAddress(for: suffix)
                         let process = Process()
                         process.executableURL = URL(fileURLWithPath: "/sbin/ping")
                         process.arguments = ["-c", "1", "-W", "200", ip]
@@ -114,16 +174,17 @@ struct NetworkScanner {
         }
     }
 
-    func discoverHostsByPortSweep(subnet: String, excludeIP: String) async -> [Device] {
+    func discoverHostsByPortSweep(context: NetworkScanContext) async -> [Device] {
         var devices: [Device] = []
+        let hostSuffixes = Array(context.hostRange)
 
-        for batchStart in stride(from: 0, to: Self.hostSuffixes.count, by: Self.probeBatchSize) {
-            let batch = Self.hostSuffixes.dropFirst(batchStart).prefix(Self.probeBatchSize)
+        for batchStart in stride(from: 0, to: hostSuffixes.count, by: Self.probeBatchSize) {
+            let batch = hostSuffixes.dropFirst(batchStart).prefix(Self.probeBatchSize)
 
             let batchDevices = await withTaskGroup(of: Device?.self) { group in
                 for suffix in batch {
-                    let ip = "\(subnet).\(suffix)"
-                    guard ip != excludeIP else { continue }
+                    let ip = context.ipAddress(for: suffix)
+                    guard ip != context.localIP else { continue }
 
                     group.addTask {
                         guard await Self.hasAnyDiscoveryPortOpen(ip: ip) else { return nil }
@@ -154,7 +215,7 @@ struct NetworkScanner {
         return devices
     }
     
-    func parseARPTable(subnet: String, excludeIP: String) async -> [Device] {
+    func parseARPTable(context: NetworkScanContext) async -> [Device] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/arp")
         process.arguments = ["-a"]
@@ -182,12 +243,12 @@ struct NetworkScanner {
                 let macAddress = components[3]
                 
                 // ✅ ФИЛЬТРЫ: пропускаем локальный IP, broadcast, multicast
-                guard ipMatch != excludeIP,
+                guard ipMatch != context.localIP,
                       !ipMatch.hasSuffix(".255"),  // broadcast
                       !ipMatch.hasSuffix(".0"),    // network address
                       macAddress != "ff:ff:ff:ff:ff:ff",  // broadcast MAC
                       macAddress.count > 5,        // валидный MAC
-                      ipMatch.starts(with: subnet) else { continue }
+                      ipMatch.starts(with: context.subnet) else { continue }
                 
                 let deviceType = DeviceDetector.detectType(mac: macAddress, ip: ipMatch)
                 let device = Device(

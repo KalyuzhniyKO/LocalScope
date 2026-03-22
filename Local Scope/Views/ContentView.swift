@@ -38,6 +38,9 @@ struct ContentView: View {
                     },
                     onAddToFavorites: { device, service in
                         viewModel.toggleFavorite(device: device, service: service)
+                    },
+                    onScanPorts: { device in
+                        viewModel.rescanDevice(device)
                     }
                 )
                 .tabItem {

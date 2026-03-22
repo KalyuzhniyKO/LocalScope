@@ -15,6 +15,7 @@ struct NetworkMapView: View {
     let onDeviceSelect: (Device) -> Void
     let onDeviceConnect: (Device, ServiceType) -> Void
     let onAddToFavorites: (Device, ServiceType) -> Void
+    let onScanPorts: (Device) -> Void
     
     var body: some View {
         VStack(spacing: 0) {
@@ -83,13 +84,21 @@ struct NetworkMapView: View {
                 }
                 Spacer()
             } else {
-                InteractiveNetworkCanvas(
-                    devices: devices,
-                    localIP: localIP,
-                    onDeviceSelect: onDeviceSelect,
-                    onDeviceConnect: onDeviceConnect,
-                    onAddToFavorites: onAddToFavorites
-                )
+                ScrollView([.horizontal, .vertical]) {
+                    InteractiveNetworkCanvas(
+                        devices: devices,
+                        localIP: localIP,
+                        onDeviceSelect: onDeviceSelect,
+                        onDeviceConnect: onDeviceConnect,
+                        onAddToFavorites: onAddToFavorites,
+                        onScanPorts: onScanPorts
+                    )
+                    .frame(
+                        minWidth: max(900, CGFloat(max(devices.count, 1)) * 90),
+                        minHeight: max(600, CGFloat(max(devices.count, 1)) * 45)
+                    )
+                    .padding()
+                }
                 .padding()
             }
         }
