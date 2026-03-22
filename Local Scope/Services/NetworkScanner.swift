@@ -72,7 +72,7 @@ struct NetworkScanner {
         }
 
         return Array(Set(contexts)).sorted { lhs, rhs in
-            scanPriority(for: lhs.interfaceName) < scanPriority(for: rhs.interfaceName)
+            Self.scanPriority(for: lhs.interfaceName) < Self.scanPriority(for: rhs.interfaceName)
         }
     }
     
@@ -82,7 +82,7 @@ struct NetworkScanner {
         return parts.dropLast().joined(separator: ".")
     }
 
-    private func scanPriority(for interfaceName: String) -> Int {
+    private static func scanPriority(for interfaceName: String) -> Int {
         switch interfaceName {
         case "en0":
             return 0
@@ -126,10 +126,11 @@ struct NetworkScanner {
                     guard ip != excludeIP else { continue }
 
                     group.addTask {
-                        guard await hasAnyDiscoveryPortOpen(ip: ip) else { return nil }
+                        guard await Self.hasAnyDiscoveryPortOpen(ip: ip) else { return nil }
+                        let deviceName = DeviceDetector.detectType(mac: "", ip: ip)
 
                         return Device(
-                            name: DeviceDetector.detectType(mac: "", ip: ip),
+                            name: deviceName,
                             ip: ip,
                             mac: nil,
                             type: "Port Probe",
@@ -205,11 +206,11 @@ struct NetworkScanner {
         }
     }
 
-    private func hasAnyDiscoveryPortOpen(ip: String) async -> Bool {
+    private static func hasAnyDiscoveryPortOpen(ip: String) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             for port in Self.discoveryPorts {
                 group.addTask {
-                    await isPortReachable(ip: ip, port: port, timeout: 250_000_000)
+                    await Self.isPortReachable(ip: ip, port: port, timeout: 250_000_000)
                 }
             }
 
@@ -224,7 +225,7 @@ struct NetworkScanner {
         }
     }
 
-    private func isPortReachable(ip: String, port: Int, timeout: UInt64) async -> Bool {
+    private static func isPortReachable(ip: String, port: Int, timeout: UInt64) async -> Bool {
         await withCheckedContinuation { continuation in
             let connection = NWConnection(
                 host: NWEndpoint.Host(ip),

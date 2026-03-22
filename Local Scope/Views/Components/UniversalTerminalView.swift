@@ -343,7 +343,8 @@ struct UniversalTerminalView: View {
                 host: device.ip,
                 port: serviceType.port,
                 password: credentials?.password
-            )
+            ),
+            bridge: VNCNativeBridge.shared
         )
     }
     

@@ -11,7 +11,7 @@ struct VNCEngine: ProtocolEngine {
     func makePlan(device: Device, credentials: ConnectionCredentials?) -> ProtocolExecutionPlan {
         let bridgeSummary = VNCNativeBridge.shared.status.summary
 
-        ProtocolExecutionPlan(
+        return ProtocolExecutionPlan(
             serviceType: .vnc,
             mode: .probeOnly,
             title: "VNC",

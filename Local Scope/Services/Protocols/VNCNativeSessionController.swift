@@ -22,7 +22,7 @@ final class VNCNativeSessionController {
 
     init(
         configuration: VNCNativeSessionConfiguration,
-        bridge: VNCNativeBridgeClient = VNCNativeBridge.shared
+        bridge: VNCNativeBridgeClient
     ) {
         self.configuration = configuration
         self.bridge = bridge
@@ -34,11 +34,12 @@ final class VNCNativeSessionController {
 
         let session = bridge.makeSession(configuration: configuration)
         self.session = session
+        let applyEvent = self.handle
 
         do {
-            try await session.start { [weak self] event in
+            try await session.start { event in
                 Task { @MainActor in
-                    self?.handle(event)
+                    applyEvent(event)
                 }
             }
         } catch {
