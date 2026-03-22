@@ -6,19 +6,21 @@
 import SwiftUI
 
 struct DeviceNode: View {
+    static let size = CGSize(width: 96, height: 72)
+
     let device: Device
     
     var body: some View {
         VStack(spacing: 2) {
             Text(getDeviceEmoji(for: device.name))
-                .font(.system(size: 20))
+                .font(.system(size: 18))
             
             Text(cleanDeviceName(device.name))
                 .font(.system(size: 8, weight: .semibold))
                 .lineLimit(1)
             
             Text(device.ip)
-                .font(.system(size: 7))
+                .font(.system(size: 8, weight: .medium))
                 .foregroundStyle(.blue)
             
             if let mac = device.mac {
@@ -38,7 +40,7 @@ struct DeviceNode: View {
                 }
             }
         }
-        .frame(width: 110, height: 85)
+        .frame(width: Self.size.width, height: Self.size.height)
         .background(getDeviceColor(for: device.name).opacity(0.15))
         .cornerRadius(12)
         .overlay(

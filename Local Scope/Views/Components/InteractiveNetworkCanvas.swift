@@ -15,12 +15,12 @@ struct InteractiveNetworkCanvas: View {
     let onScanPorts: ((Device) -> Void)?
 
     private let ringCapacity = 12
-    private let ringSpacing: CGFloat = 125
+    private let ringSpacing: CGFloat = 112
 
     var body: some View {
         GeometryReader { geometry in
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-            let baseRadius = max(110, min(geometry.size.width, geometry.size.height) / 4)
+            let baseRadius = max(90, min(geometry.size.width, geometry.size.height) / 5)
             let totalRings = max(1, Int(ceil(Double(max(devices.count, 1)) / Double(ringCapacity))))
 
             ZStack {
@@ -34,9 +34,9 @@ struct InteractiveNetworkCanvas: View {
                     )
                 }
 
-                ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
+                ForEach(devices) { device in
                     let position = calculatePosition(
-                        index: index,
+                        index: index(of: device),
                         total: devices.count,
                         center: center,
                         baseRadius: baseRadius
@@ -44,7 +44,8 @@ struct InteractiveNetworkCanvas: View {
 
                     DeviceNode(device: device)
                         .position(position)
-                        .contentShape(Rectangle())
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                        .zIndex(1)
                         .onTapGesture(count: 2) {
                             handleDoubleClick(device)
                         }
@@ -139,6 +140,10 @@ struct InteractiveNetworkCanvas: View {
         } else {
             onDeviceSelect(device)
         }
+    }
+
+    private func index(of device: Device) -> Int {
+        devices.firstIndex(where: { $0.id == device.id }) ?? 0
     }
 
     private func drawBackground(

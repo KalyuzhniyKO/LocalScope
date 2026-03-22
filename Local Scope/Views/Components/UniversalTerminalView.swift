@@ -197,7 +197,7 @@ struct UniversalTerminalView: View {
                 }
             }
         }
-        .frame(width: 900, height: 600)
+        .frame(minWidth: 760, idealWidth: 820, minHeight: 520, idealHeight: 580)
         .onAppear {
             if !hasStartedInitialFlow {
                 hasStartedInitialFlow = true

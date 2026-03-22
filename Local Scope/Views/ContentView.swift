@@ -161,7 +161,7 @@ struct ContentView: View {
                     )
             }
         }
-        .frame(minWidth: 900, minHeight: 650)
+        .frame(minWidth: 760, idealWidth: 820, minHeight: 560, idealHeight: 620)
         .sheet(isPresented: $showConnectionSheet) {
             if let device = selectedDevice {
                 ConnectionSelectionSheet(

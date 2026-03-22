@@ -94,8 +94,8 @@ struct NetworkMapView: View {
                         onScanPorts: onScanPorts
                     )
                     .frame(
-                        minWidth: max(900, CGFloat(max(devices.count, 1)) * 90),
-                        minHeight: max(600, CGFloat(max(devices.count, 1)) * 45)
+                        minWidth: max(720, CGFloat(max(devices.count, 1)) * 72),
+                        minHeight: max(520, CGFloat(max(devices.count, 1)) * 38)
                     )
                     .padding()
                 }
