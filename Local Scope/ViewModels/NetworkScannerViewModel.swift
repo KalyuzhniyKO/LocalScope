@@ -99,7 +99,7 @@ final class NetworkScannerViewModel {
     private func discoverDevicesViaARP(in contexts: [NetworkScanContext]) async -> [Device] {
         let scanner = networkScanner
 
-        await withTaskGroup(of: [Device].self) { group in
+        return await withTaskGroup(of: [Device].self) { group in
             for context in contexts {
                 group.addTask {
                     await scanner.parseARPTable(
@@ -120,7 +120,7 @@ final class NetworkScannerViewModel {
     private func discoverDevicesViaPortSweep(in contexts: [NetworkScanContext]) async -> [Device] {
         let scanner = networkScanner
 
-        await withTaskGroup(of: [Device].self) { group in
+        return await withTaskGroup(of: [Device].self) { group in
             for context in contexts {
                 group.addTask {
                     await scanner.discoverHostsByPortSweep(
