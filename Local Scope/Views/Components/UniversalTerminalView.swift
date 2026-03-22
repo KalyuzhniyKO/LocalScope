@@ -2,17 +2,14 @@
 //  UniversalTerminalView.swift
 //  Local Scope
 //
-//  ✅ ТОЛЬКО ВСТРОЕННЫЕ МЕТОДЫ macOS:
-//  - SSH → Terminal.app
-//  - RDP → Microsoft Remote Desktop (если установлен) или open rdp://
-//  - VNC → Screen Sharing (встроенный)
-//  - FTP → Terminal.app + sftp/ftp команды
-//
-//  ❌ БЕЗ предложений установки FreeRDP/RDesktop
+//  ✅ ВСТРОЕННЫЕ СЕССИИ ВНУТРИ ПРИЛОЖЕНИЯ:
+//  - SSH / FTP / SFTP → встроенная shell-сессия в окне Local Scope
+//  - RDP / VNC → внутренняя проверка доступности и статус подключения
 //
 
 import SwiftUI
 import AppKit
+import Network
 
 struct UniversalTerminalView: View {
     let device: Device
@@ -20,47 +17,25 @@ struct UniversalTerminalView: View {
     let credentials: ConnectionCredentials?
     @Environment(\.dismiss) var dismiss
     
-    @State private var rdpClient: RDPClient
-    @State private var sshClient: SSHClient
-    @State private var vncClient: VNCClient
-    @State private var ftpClient: FTPClient
-    
     @State private var connectionStatus: String = "Готов к подключению"
     @State private var isConnecting = false
+    @State private var terminalOutput = ""
+    @State private var terminalInput = ""
+    @State private var sessionIsRunning = false
+    @State private var hasStartedInitialFlow = false
+    @State private var processSession = EmbeddedProcessSession()
+    @State private var vncNativeController: VNCNativeSessionController?
     
     init(device: Device, serviceType: ServiceType, credentials: ConnectionCredentials?) {
         self.device = device
         self.serviceType = serviceType
         self.credentials = credentials
-        
-        let creds = credentials ?? ConnectionCredentials(username: "", password: "", saveCredentials: false)
-        
-        _rdpClient = State(initialValue: RDPClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password
-        ))
-        
-        _sshClient = State(initialValue: SSHClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password
-        ))
-        
-        _vncClient = State(initialValue: VNCClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password
-        ))
-        
-        _ftpClient = State(initialValue: FTPClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password,
-            useSFTP: serviceType == .sftp
-        ))
     }
-    
+
+    private var executionPlan: ProtocolExecutionPlan {
+        ProtocolEngineFactory.makeEngine(for: serviceType).makePlan(device: device, credentials: credentials)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // HEADER
@@ -123,6 +98,38 @@ struct UniversalTerminalView: View {
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.7))
                     }
+
+                    VStack(spacing: 8) {
+                        Label(serviceType.engineName, systemImage: serviceType.hasFullInAppEngine ? "cpu.fill" : "waveform.path.ecg")
+                            .font(.headline)
+                            .foregroundStyle(serviceType.hasFullInAppEngine ? .green : .orange)
+
+                        Text(serviceType.engineSummary)
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.72))
+
+                        if let preferredEngine = serviceType.preferredOpenSourceEngine {
+                            Text("Recommended engine: \(preferredEngine)")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+
+                        Text(serviceType.runtimeProcedure.userFacingMessage)
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(
+                                serviceType.runtimeProcedure.worksOutOfBoxOnMac
+                                    ? .green.opacity(0.8)
+                                    : .orange.opacity(0.85)
+                            )
+
+                        Text(executionPlan.summary)
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.62))
+                    }
+                    .padding(.horizontal, 24)
                     
                     VStack(spacing: 6) {
                         InfoRow(icon: "server.rack", text: device.ip)
@@ -135,7 +142,8 @@ struct UniversalTerminalView: View {
                     .background(Color.white.opacity(0.05))
                     .cornerRadius(12)
                     
-                    // ✅ ТОЛЬКО ВСТРОЕННЫЕ КНОПКИ
+                    protocolWorkspace
+
                     HStack(spacing: 16) {
                         QuickConnectButton(
                             title: "SSH",
@@ -191,106 +199,352 @@ struct UniversalTerminalView: View {
         }
         .frame(width: 900, height: 600)
         .onAppear {
-            autoConnect()
+            if !hasStartedInitialFlow {
+                hasStartedInitialFlow = true
+                prepareNativeVNCIfNeeded()
+                autoConnect()
+            }
+        }
+        .onDisappear {
+            processSession.stop()
+            if let controller = vncNativeController {
+                Task {
+                    await controller.disconnect()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var protocolWorkspace: some View {
+        if serviceType == .ssh || serviceType == .ftp || serviceType == .sftp {
+            VStack(spacing: 12) {
+                ScrollView {
+                    Text(terminalOutput.isEmpty ? "Ожидание запуска встроенной сессии..." : terminalOutput)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.green)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 260)
+                .background(Color.black.opacity(0.65))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                HStack(spacing: 12) {
+                    TextField("Введите команду или пароль и нажмите Send", text: $terminalInput)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button("Send") {
+                        sendInput()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!sessionIsRunning || terminalInput.isEmpty)
+
+                    Button("Stop") {
+                        stopSession()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!sessionIsRunning)
+                }
+            }
+        } else if serviceType == .vnc,
+                  VNCNativeBridge.shared.status.isAvailable,
+                  let controller = vncNativeController {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Нативный VNC framebuffer pipeline", systemImage: "display.2")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text(controller.connectionStatus)
+                    .foregroundStyle(.white.opacity(0.8))
+
+                VNCFrameBufferView(frameBuffer: controller.frameBuffer)
+                    .frame(maxWidth: .infinity, minHeight: 240, maxHeight: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                HStack(spacing: 12) {
+                    Button("Reconnect") {
+                        Task {
+                            await controller.connect()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Disconnect") {
+                        Task {
+                            await controller.disconnect()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if let error = controller.lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Внешние приложения не используются.", systemImage: "internaldrive")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text("Для \(serviceType.rawValue) сейчас выполняется внутренняя проверка доступности сервиса и подготовка параметров подключения прямо в окне Local Scope.")
+                    .foregroundStyle(.white.opacity(0.8))
+
+                HStack(spacing: 12) {
+                    Label("Host: \(device.ip)", systemImage: "server.rack")
+                    Label("Port: \(serviceType.port)", systemImage: "network")
+                }
+                .foregroundStyle(.white.opacity(0.75))
+
+                Text(connectionStatus)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.35))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
         }
     }
     
     // MARK: - Auto Connect
     private func autoConnect() {
-        switch serviceType {
-        case .ssh:
+        if serviceType == .vnc,
+           VNCNativeBridge.shared.status.isAvailable,
+           let controller = vncNativeController {
             Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectSSH()
+                await controller.connect()
             }
-        case .rdp:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectRDP()
-            }
-        case .ftp, .sftp:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectFTP()
-            }
-        case .vnc:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectVNC()
-            }
+            return
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            runCurrentPlan()
         }
     }
+
+    private func prepareNativeVNCIfNeeded() {
+        guard serviceType == .vnc, VNCNativeBridge.shared.status.isAvailable else { return }
+
+        vncNativeController = VNCNativeSessionController(
+            configuration: VNCNativeSessionConfiguration(
+                host: device.ip,
+                port: serviceType.port,
+                password: credentials?.password
+            )
+        )
+    }
     
-    // MARK: - Connection Methods (ТОЛЬКО ВСТРОЕННЫЕ)
+    // MARK: - Connection Methods (ВНУТРИ ПРИЛОЖЕНИЯ)
     private func connectSSH() {
-        Task { @MainActor in
-            isConnecting = true
-            connectionStatus = "🔄 Открытие SSH..."
-            
-            await sshClient.connect()
-            connectionStatus = sshClient.connectionStatus
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            isConnecting = false
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            dismiss()
-        }
+        runCurrentPlan()
     }
     
     private func connectRDP() {
-        Task { @MainActor in
-            isConnecting = true
-            connectionStatus = "🖥️ Открытие RDP..."
-            
-            guard let creds = credentials else {
-                connectionStatus = "❌ Требуются учётные данные"
-                isConnecting = false
-                return
-            }
-            
-            // ✅ ВСТРОЕННЫЙ СПОСОБ: открываем rdp:// URL
-            let rdpURL = "rdp://full%20address=s:\(device.ip):3389&username=s:\(creds.username)"
-            
-            if let url = URL(string: rdpURL) {
-                NSWorkspace.shared.open(url)
-                connectionStatus = "✅ RDP открыт (Microsoft Remote Desktop)"
-            } else {
-                connectionStatus = "❌ Ошибка создания RDP URL"
-            }
-            
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            isConnecting = false
-            dismiss()
-        }
+        runCurrentPlan()
     }
     
     private func connectVNC() {
-        Task { @MainActor in
-            isConnecting = true
-            connectionStatus = "🖥️ Открытие VNC..."
-            
-            await vncClient.connect()
-            connectionStatus = vncClient.connectionStatus
-            
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            isConnecting = false
-            dismiss()
+        if VNCNativeBridge.shared.status.isAvailable,
+           let controller = vncNativeController {
+            Task {
+                await controller.connect()
+            }
+            return
         }
+
+        runCurrentPlan()
     }
     
     private func connectFTP() {
+        runCurrentPlan()
+    }
+
+    private func runCurrentPlan() {
         Task { @MainActor in
-            isConnecting = true
-            connectionStatus = "📁 Открытие FTP..."
-            
-            await ftpClient.connect()
-            connectionStatus = ftpClient.connectionStatus
-            
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            isConnecting = false
-            dismiss()
+            let plan = executionPlan
+
+            switch plan.mode {
+            case .embeddedShell:
+                guard let command = plan.command else {
+                    connectionStatus = "❌ \(plan.summary)"
+                    return
+                }
+                startEmbeddedSession(title: plan.title, command: command)
+            case .probeOnly:
+                guard let port = plan.probePort else {
+                    connectionStatus = "❌ Для \(plan.title) не настроен probe-порт"
+                    return
+                }
+
+                isConnecting = true
+                connectionStatus = "🔍 \(plan.summary)"
+                await probePort(port: port, title: plan.title)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                isConnecting = false
+            }
         }
+    }
+
+    private func startEmbeddedSession(title: String, command: String) {
+        stopSession()
+
+        terminalOutput = "local-scope> \(command)\n"
+        connectionStatus = "🔄 Запуск встроенной \(title)-сессии..."
+        isConnecting = true
+
+        processSession.start(
+            command: command,
+            onOutput: { chunk in
+                terminalOutput += chunk
+            },
+            onExit: { code in
+                sessionIsRunning = false
+                isConnecting = false
+                connectionStatus = code == 0
+                    ? "✅ Встроенная \(title)-сессия завершена"
+                    : "⚠️ Встроенная \(title)-сессия завершилась с кодом \(code)"
+            }
+        )
+
+        sessionIsRunning = true
+        isConnecting = false
+        connectionStatus = "✅ Встроенная \(title)-сессия запущена"
+    }
+
+    private func sendInput() {
+        guard !terminalInput.isEmpty else { return }
+        processSession.send(terminalInput + "\n")
+        terminalInput = ""
+    }
+
+    private func stopSession() {
+        processSession.stop()
+        sessionIsRunning = false
+    }
+
+    private func probePort(port: UInt16, title: String) async {
+        let result = await withCheckedContinuation { continuation in
+            let connection = NWConnection(
+                host: NWEndpoint.Host(device.ip),
+                port: NWEndpoint.Port(rawValue: port) ?? .init(integerLiteral: port),
+                using: .tcp
+            )
+
+            var resumed = false
+
+            connection.stateUpdateHandler = { state in
+                guard !resumed else { return }
+
+                switch state {
+                case .ready:
+                    resumed = true
+                    connection.cancel()
+                    continuation.resume(returning: true)
+                case .failed, .waiting:
+                    resumed = true
+                    connection.cancel()
+                    continuation.resume(returning: false)
+                default:
+                    break
+                }
+            }
+
+            connection.start(queue: .global())
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
+                guard !resumed else { return }
+                resumed = true
+                connection.cancel()
+                continuation.resume(returning: false)
+            }
+        }
+
+        connectionStatus = result
+            ? "✅ \(title) сервис отвечает на \(device.ip):\(port). Соединение остаётся внутри Local Scope."
+            : "❌ \(title) сервис недоступен на \(device.ip):\(port)"
+    }
+}
+
+final class EmbeddedProcessSession {
+    private var process: Process?
+    private var inputPipe: Pipe?
+    private var outputPipe: Pipe?
+    private var errorPipe: Pipe?
+
+    func start(command: String, onOutput: @escaping (String) -> Void, onExit: @escaping (Int32) -> Void) {
+        stop()
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", "/bin/zsh", "-lc", command]
+
+        let inputPipe = Pipe()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.standardInput = inputPipe
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        let emit: (FileHandle) -> Void = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+            DispatchQueue.main.async {
+                onOutput(chunk)
+            }
+        }
+
+        outputPipe.fileHandleForReading.readabilityHandler = emit
+        errorPipe.fileHandleForReading.readabilityHandler = emit
+
+        process.terminationHandler = { process in
+            DispatchQueue.main.async {
+                onExit(process.terminationStatus)
+            }
+        }
+
+        do {
+            try process.run()
+            self.process = process
+            self.inputPipe = inputPipe
+            self.outputPipe = outputPipe
+            self.errorPipe = errorPipe
+        } catch {
+            DispatchQueue.main.async {
+                onOutput("❌ Не удалось запустить встроенную сессию: \(error.localizedDescription)\n")
+                onExit(-1)
+            }
+        }
+    }
+
+    func send(_ text: String) {
+        guard let data = text.data(using: .utf8) else { return }
+        inputPipe?.fileHandleForWriting.write(data)
+    }
+
+    func stop() {
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        errorPipe?.fileHandleForReading.readabilityHandler = nil
+        if process?.isRunning == true {
+            process?.terminate()
+        }
+        process = nil
+        inputPipe = nil
+        outputPipe = nil
+        errorPipe = nil
     }
 }
 

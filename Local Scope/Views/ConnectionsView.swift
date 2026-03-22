@@ -8,17 +8,39 @@ import SwiftUI
 struct ConnectionsView: View {
     let devices: [Device]
     let history: [Device]
+    let sessions: [SavedSession]
     let serviceType: ServiceType
     let title: String
     let onConnect: (Device, ServiceType) -> Void
+    let onConnectSession: (SavedSession) -> Void
+    let onDeleteSession: (SavedSession) -> Void
     let onAddManual: () -> Void
     
     var filteredDevices: [Device] {
         let allDevices = devices + history
         let grouped = Dictionary(grouping: allDevices, by: { $0.ip })
         let unique = grouped.compactMap { $0.value.first }
-        let filtered = unique.filter { $0.availableServices.contains(serviceType) }
+        let filtered = unique.filter { device in
+            if serviceType == .ftp {
+                return device.availableServices.contains(.ftp) || device.availableServices.contains(.sftp)
+            }
+            return device.availableServices.contains(serviceType)
+        }
         return filtered.sorted { $0.lastSeen > $1.lastSeen }
+    }
+
+    private func resolvedServiceType(for device: Device) -> ServiceType {
+        if serviceType == .ftp {
+            if device.availableServices.contains(.ftp) {
+                return .ftp
+            }
+
+            if device.availableServices.contains(.sftp) {
+                return .sftp
+            }
+        }
+
+        return serviceType
     }
     
     var body: some View {
@@ -48,7 +70,7 @@ struct ConnectionsView: View {
             .padding(.horizontal)
             .padding(.top, 10)
             
-            if filteredDevices.isEmpty {
+            if filteredDevices.isEmpty && sessions.isEmpty {
                 Spacer()
                 VStack(spacing: 12) {
                     Image(systemName: serviceType.icon)
@@ -65,8 +87,31 @@ struct ConnectionsView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
+                        if !sessions.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label("Сохранённые сессии", systemImage: "bookmark.fill")
+                                    .font(.headline)
+                                    .foregroundStyle(serviceType.color)
+
+                                ForEach(sessions) { session in
+                                    SessionCard(session: session, onConnect: onConnectSession, onDelete: onDeleteSession)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        if !filteredDevices.isEmpty {
+                            Label("Найденные устройства", systemImage: "network")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         ForEach(filteredDevices) { device in
-                            ConnectionCard(device: device, serviceType: serviceType, onConnect: onConnect)
+                            ConnectionCard(
+                                device: device,
+                                serviceType: resolvedServiceType(for: device),
+                                onConnect: onConnect
+                            )
                         }
                     }
                     .padding()

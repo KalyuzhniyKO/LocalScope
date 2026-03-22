@@ -4,7 +4,6 @@
 //
 
 import Foundation
-import SwiftUI
 import Observation
 
 @Observable
@@ -20,7 +19,7 @@ final class FTPClient {
     
     init(host: String, username: String, password: String, port: UInt16 = 21, useSFTP: Bool = false) {
         self.host = host
-        self.port = port
+        self.port = useSFTP && port == 21 ? 22 : port
         self.username = username
         self.password = password
         self.useSFTP = useSFTP
@@ -28,33 +27,51 @@ final class FTPClient {
     
     @MainActor
     func connect() async {
-        connectionStatus = "🔄 Connecting FTP..."
+        connectionStatus = useSFTP ? "🔄 Открытие SFTP..." : "🔄 Открытие FTP..."
         
         let command: String
         if useSFTP {
-            command = "sftp -P \(port) \(username)@\(host)"
+            let target = username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? shellQuoted(host)
+                : "\(shellQuoted(username))@\(shellQuoted(host))"
+            command = "sftp -P \(port) \(target)"
         } else {
-            command = "ftp \(host) \(port)"
+            command = "ftp \(shellQuoted(host)) \(port)"
         }
         
-        executeInTerminal(command: command)
+        let opened = executeInTerminal(command: command)
         
         try? await Task.sleep(nanoseconds: 500_000_000)
-        isConnected = true
-        connectionStatus = "✅ FTP opened"
+        isConnected = opened
+        connectionStatus = opened
+            ? (useSFTP ? "✅ SFTP команда отправлена в Terminal" : "✅ FTP команда отправлена в Terminal")
+            : "❌ Не удалось открыть Terminal для FTP/SFTP"
     }
     
-    private func executeInTerminal(command: String) {
+    private func executeInTerminal(command: String) -> Bool {
         let script = """
         tell application "Terminal"
             activate
-            do script "\(command)"
+            do script "\(escapeAppleScript(command))"
         end tell
         """
         
         if let scriptObject = NSAppleScript(source: script) {
             var error: NSDictionary?
             scriptObject.executeAndReturnError(&error)
+            return error == nil
         }
+
+        return false
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private func escapeAppleScript(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }

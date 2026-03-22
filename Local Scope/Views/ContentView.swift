@@ -16,6 +16,7 @@ struct ContentView: View {
     
     @State private var showUniversalTerminal = false
     @State private var selectedServiceType: ServiceType = .ssh
+    @State private var activeCredentials: ConnectionCredentials?
     
     @State private var showCredentialsSheet = false
     @State private var pendingConnection: (Device, ServiceType)?
@@ -47,10 +48,17 @@ struct ContentView: View {
                 ConnectionsView(
                     devices: viewModel.devices(for: .ssh),
                     history: viewModel.history.filter { $0.availableServices.contains(.ssh) },
+                    sessions: viewModel.sessions(for: .ssh),
                     serviceType: ServiceType.ssh,
                     title: "SSH Connections",
                     onConnect: { device, service in
                         handleConnection(device: device, service: service)
+                    },
+                    onConnectSession: { session in
+                        connectSavedSession(session)
+                    },
+                    onDeleteSession: { session in
+                        viewModel.deleteSession(session)
                     },
                     onAddManual: {
                         addDeviceServiceType = ServiceType.ssh
@@ -65,10 +73,17 @@ struct ContentView: View {
                 ConnectionsView(
                     devices: viewModel.devices(for: .rdp),
                     history: viewModel.history.filter { $0.availableServices.contains(.rdp) },
+                    sessions: viewModel.sessions(for: .rdp),
                     serviceType: ServiceType.rdp,
                     title: "RDP Connections",
                     onConnect: { device, service in
                         handleConnection(device: device, service: service)
+                    },
+                    onConnectSession: { session in
+                        connectSavedSession(session)
+                    },
+                    onDeleteSession: { session in
+                        viewModel.deleteSession(session)
                     },
                     onAddManual: {
                         addDeviceServiceType = ServiceType.rdp
@@ -82,11 +97,18 @@ struct ContentView: View {
                 
                 ConnectionsView(
                     devices: viewModel.devices(for: .ftp),
-                    history: viewModel.history.filter { $0.availableServices.contains(.ftp) },
+                    history: viewModel.history.filter { $0.availableServices.contains(.ftp) || $0.availableServices.contains(.sftp) },
+                    sessions: viewModel.sessions(for: .ftp),
                     serviceType: ServiceType.ftp,
                     title: "FTP/SFTP Transfers",
                     onConnect: { device, service in
                         handleConnection(device: device, service: service)
+                    },
+                    onConnectSession: { session in
+                        connectSavedSession(session)
+                    },
+                    onDeleteSession: { session in
+                        viewModel.deleteSession(session)
                     },
                     onAddManual: {
                         addDeviceServiceType = ServiceType.ftp
@@ -164,12 +186,12 @@ struct ContentView: View {
                     serviceType: service,
                     onConnect: { credentials in
                         showCredentialsSheet = false
-                        performConnectionWithCredentials(device: device, service: service, credentials: credentials)
+                        openConnection(device: device, service: service, credentials: credentials)
                     },
                     onSaveSession: { name, credentials in
                         showCredentialsSheet = false
-                        // Сохраняем как обычные credentials, без SavedSession
-                        performConnectionWithCredentials(device: device, service: service, credentials: credentials)
+                        viewModel.saveSession(name: name, device: device, service: service, credentials: credentials)
+                        openConnection(device: device, service: service, credentials: credentials)
                     }
                 )
             }
@@ -179,7 +201,7 @@ struct ContentView: View {
                 UniversalTerminalView(
                     device: device,
                     serviceType: selectedServiceType,
-                    credentials: viewModel.getCredentials(for: device, service: selectedServiceType)
+                    credentials: activeCredentials
                 )
             }
         }
@@ -203,20 +225,27 @@ struct ContentView: View {
     
     private func handleConnection(device: Device, service: ServiceType) {
         if let savedCreds = viewModel.getCredentials(for: device, service: service) {
-            performConnectionWithCredentials(device: device, service: service, credentials: savedCreds)
-        } else {
+            openConnection(device: device, service: service, credentials: savedCreds)
+        } else if service.requiresCredentials {
             pendingConnection = (device, service)
             showCredentialsSheet = true
+        } else {
+            openConnection(device: device, service: service, credentials: nil)
         }
     }
     
-    private func performConnectionWithCredentials(device: Device, service: ServiceType, credentials: ConnectionCredentials) {
-        if credentials.saveCredentials {
+    private func connectSavedSession(_ session: SavedSession) {
+        openConnection(device: session.device, service: session.serviceType, credentials: session.credentials)
+    }
+
+    private func openConnection(device: Device, service: ServiceType, credentials: ConnectionCredentials?) {
+        if let credentials, credentials.saveCredentials {
             viewModel.saveCredentials(credentials, for: device, service: service)
         }
         
         selectedDevice = device
         selectedServiceType = service
+        activeCredentials = credentials
         showUniversalTerminal = true
     }
 }

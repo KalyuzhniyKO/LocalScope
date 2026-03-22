@@ -128,9 +128,10 @@ struct InteractiveNetworkCanvas: View {
             return
         }
         
-        // Приоритет: RDP → SSH → FTP → VNC
+        // Приоритет: RDP → SSH → SFTP → FTP → VNC
         if let primaryService = device.availableServices.first(where: { $0 == .rdp })
             ?? device.availableServices.first(where: { $0 == .ssh })
+            ?? device.availableServices.first(where: { $0 == .sftp })
             ?? device.availableServices.first(where: { $0 == .ftp })
             ?? device.availableServices.first {
             print("✅ Auto-connecting via \(primaryService.rawValue)")

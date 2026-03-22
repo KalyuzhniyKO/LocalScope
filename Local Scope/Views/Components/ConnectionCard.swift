@@ -43,7 +43,7 @@ struct ConnectionCard: View {
             }
             
             Button(action: { onConnect(device, serviceType) }) {
-                Text("Connect")
+                Text(serviceType.runtimeProcedure.primaryActionTitle)
                     .font(.caption.bold())
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)

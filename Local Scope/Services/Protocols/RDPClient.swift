@@ -5,7 +5,7 @@
 
 import Foundation
 import Network
-import SwiftUI
+import AppKit
 import Observation
 
 @Observable
@@ -76,7 +76,61 @@ final class RDPClient {
     }
     
     @MainActor
-    func connect() {
-        testConnection()
+    func connect() async {
+        connectionStatus = "🖥️ Подготовка RDP подключения..."
+
+        do {
+            let fileURL = try createRDPFile()
+            NSWorkspace.shared.open(fileURL)
+
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            isConnected = true
+            connectionStatus = "✅ RDP файл открыт"
+        } catch {
+            if let fallbackURL = makeLegacyRDPURL() {
+                NSWorkspace.shared.open(fallbackURL)
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                isConnected = true
+                connectionStatus = "✅ RDP URL открыт"
+            } else {
+                isConnected = false
+                errorMessage = error.localizedDescription
+                connectionStatus = "❌ Не удалось подготовить RDP подключение"
+            }
+        }
+    }
+
+    private func createRDPFile() throws -> URL {
+        let usernameLine = username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ""
+            : "username:s:\(username)\n"
+        let passwordPromptLine = password.isEmpty ? "prompt for credentials on client:i:1\n" : ""
+        let contents = """
+        full address:s:\(host):\(port)
+        \(usernameLine)\(passwordPromptLine)screen mode id:i:2
+        use multimon:i:0
+        """
+
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        let fileURL = temporaryDirectory
+            .appendingPathComponent("LocalScope-\(host)-\(port)")
+            .appendingPathExtension("rdp")
+
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    private func makeLegacyRDPURL() -> URL? {
+        var components = URLComponents()
+        components.scheme = "rdp"
+        components.percentEncodedQueryItems = [
+            URLQueryItem(name: "full address", value: "s:\(host):\(port)"),
+            URLQueryItem(name: "username", value: username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "s:\(username)")
+        ].compactMap { item in
+            guard let value = item.value else { return nil }
+            return URLQueryItem(name: item.name, value: value)
+        }
+
+        return components.url
     }
 }

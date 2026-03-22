@@ -10,29 +10,39 @@
 import Foundation
 import Network
 
-actor PortScanner {
+struct PortScanner {
+    private static let deviceBatchSize = 24
     
     // ✅ ПУБЛИЧНЫЙ метод для сканирования всех устройств
     func scanServicesForDevices(_ devices: [Device]) async -> [Device] {
-        await withTaskGroup(of: Device.self) { group -> [Device] in
-            for device in devices {
-                group.addTask {
-                    await self.scanDevice(device)
+        var scannedDevices: [Device] = []
+
+        for batchStart in stride(from: 0, to: devices.count, by: Self.deviceBatchSize) {
+            let batch = devices.dropFirst(batchStart).prefix(Self.deviceBatchSize)
+
+            let batchResults = await withTaskGroup(of: Device.self) { group -> [Device] in
+                for device in batch {
+                    group.addTask {
+                        await scanDevice(device)
+                    }
                 }
+
+                var localResults: [Device] = []
+                for await device in group {
+                    localResults.append(device)
+                }
+                return localResults
             }
-            
-            var scannedDevices: [Device] = []
-            for await device in group {
-                scannedDevices.append(device)
-            }
-            return scannedDevices
+
+            scannedDevices.append(contentsOf: batchResults)
         }
+
+        return scannedDevices
     }
     
     // ✅ ПУБЛИЧНЫЙ метод для сканирования одного устройства
     func scanDevice(_ device: Device) async -> Device {
         var updatedDevice = device
-        var services: [ServiceType] = []
         
         let portsToCheck: [(ServiceType, Int)] = [
             (.ssh, 22),
@@ -40,14 +50,28 @@ actor PortScanner {
             (.ftp, 21),
             (.vnc, 5900)
         ]
-        
-        for (service, port) in portsToCheck {
-            if await isPortOpen(ip: device.ip, port: port) {
-                services.append(service)
+
+        let discoveredServices = await withTaskGroup(of: [ServiceType].self) { group -> [ServiceType] in
+            for (service, port) in portsToCheck {
+                group.addTask {
+                    guard await isPortOpen(ip: device.ip, port: port) else { return [] }
+
+                    if service == .ssh {
+                        return [.ssh, .sftp]
+                    }
+
+                    return [service]
+                }
             }
+
+            var services: [ServiceType] = []
+            for await foundServices in group {
+                services.append(contentsOf: foundServices)
+            }
+            return services
         }
         
-        updatedDevice.availableServices = services
+        updatedDevice.availableServices = Array(Set(discoveredServices)).sorted { $0.rawValue < $1.rawValue }
         return updatedDevice
     }
     
@@ -60,27 +84,26 @@ actor PortScanner {
                 using: .tcp
             )
             
+            let lock = NSLock()
             var hasResumed = false
+
+            let finish: (Bool) -> Void = { result in
+                lock.lock()
+                defer { lock.unlock() }
+                guard !hasResumed else { return }
+                hasResumed = true
+                connection.cancel()
+                continuation.resume(returning: result)
+            }
             
             connection.stateUpdateHandler = { state in
-                guard !hasResumed else { return }
-                
                 switch state {
                 case .ready:
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: true)
-                    
+                    finish(true)
                 case .failed:
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: false)
-                    
+                    finish(false)
                 case .waiting:
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: false)
-                    
+                    finish(false)
                 default:
                     break
                 }
@@ -89,11 +112,7 @@ actor PortScanner {
             connection.start(queue: .global())
             
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                if !hasResumed {
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: false)
-                }
+                finish(false)
             }
         }
     }

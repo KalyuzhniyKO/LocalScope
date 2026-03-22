@@ -18,6 +18,7 @@ final class NetworkScannerViewModel {
     // MARK: - Properties
     var devices: [Device] = []
     var history: [Device] = []
+    var savedSessions: [SavedSession] = []
     var scanning = false
     var progress: Double = 0.0
     var syncStatus = ""
@@ -34,6 +35,7 @@ final class NetworkScannerViewModel {
     init() {
         loadHistory()
         loadCredentials()
+        loadSessions()
     }
     
     // MARK: - Network Scanning (УСКОРЕННОЕ)
@@ -41,33 +43,41 @@ final class NetworkScannerViewModel {
         Task {
             scanning = true
             progress = 0.0
-            syncStatus = "🔍 Получение локального IP..."
-            
-            guard let localIPAddress = await networkScanner.getLocalIP() else {
-                syncStatus = "❌ Не удалось получить локальный IP"
+            syncStatus = "🔍 Определение активных сетевых интерфейсов..."
+
+            let scanContexts = await networkScanner.activeScanContexts()
+
+            guard !scanContexts.isEmpty else {
+                syncStatus = "❌ Не удалось определить активные IPv4 интерфейсы"
                 scanning = false
                 return
             }
-            
-            localIP = localIPAddress
-            
-            guard let subnet = networkScanner.extractSubnet(from: localIPAddress) else {
-                syncStatus = "❌ Не удалось определить подсеть"
-                scanning = false
-                return
-            }
-            
+
+            localIP = scanContexts.first?.localIP ?? ""
+
             progress = 0.1
-            syncStatus = "🔍 Быстрое сканирование \(subnet).0/24..."
-            
-            // ✅ ПАРАЛЛЕЛЬНЫЙ ПИНГ (~2 секунды)
-            await networkScanner.quickPingSubnet(subnet: subnet)
-            
+            let contextNames = scanContexts.map(\.displayName).joined(separator: ", ")
+            syncStatus = "🔍 Быстрое сканирование: \(contextNames)"
+            let scanner = networkScanner
+
+            await withTaskGroup(of: Void.self) { group in
+                for context in scanContexts {
+                    group.addTask {
+                        await scanner.quickPingSubnet(subnet: context.subnet)
+                    }
+                }
+            }
+
             progress = 0.4
-            syncStatus = "📋 Поиск устройств..."
-            
-            // ✅ ПАРСИНГ ARP (без broadcast)
-            var foundDevices = await networkScanner.parseARPTable(subnet: subnet, excludeIP: localIPAddress)
+            syncStatus = "📋 Поиск устройств несколькими методами..."
+
+            async let arpDevices = discoverDevicesViaARP(in: scanContexts)
+            async let probedDevices = discoverDevicesViaPortSweep(in: scanContexts)
+
+            let arpResults = await arpDevices
+            let probedResults = await probedDevices
+            let mergedDevices = mergeDiscoveredDevices(arpResults, probedResults)
+            var foundDevices = mergedDevices
             
             progress = 0.6
             syncStatus = "🔍 Проверка портов (\(foundDevices.count) устройств)..."
@@ -84,6 +94,72 @@ final class NetworkScannerViewModel {
             
             await saveHistory()
         }
+    }
+
+    private func discoverDevicesViaARP(in contexts: [NetworkScanContext]) async -> [Device] {
+        let scanner = networkScanner
+
+        await withTaskGroup(of: [Device].self) { group in
+            for context in contexts {
+                group.addTask {
+                    await scanner.parseARPTable(
+                        subnet: context.subnet,
+                        excludeIP: context.localIP
+                    )
+                }
+            }
+
+            var allDevices: [Device] = []
+            for await batch in group {
+                allDevices.append(contentsOf: batch)
+            }
+            return allDevices
+        }
+    }
+
+    private func discoverDevicesViaPortSweep(in contexts: [NetworkScanContext]) async -> [Device] {
+        let scanner = networkScanner
+
+        await withTaskGroup(of: [Device].self) { group in
+            for context in contexts {
+                group.addTask {
+                    await scanner.discoverHostsByPortSweep(
+                        subnet: context.subnet,
+                        excludeIP: context.localIP
+                    )
+                }
+            }
+
+            var allDevices: [Device] = []
+            for await batch in group {
+                allDevices.append(contentsOf: batch)
+            }
+            return allDevices
+        }
+    }
+
+    private func mergeDiscoveredDevices(_ primary: [Device], _ fallback: [Device]) -> [Device] {
+        let merged = Dictionary(grouping: primary + fallback, by: { $0.ip })
+            .compactMap { _, devices -> Device? in
+                devices.max { lhs, rhs in
+                    let lhsScore = discoveryScore(for: lhs)
+                    let rhsScore = discoveryScore(for: rhs)
+                    if lhsScore == rhsScore {
+                        return lhs.lastSeen < rhs.lastSeen
+                    }
+                    return lhsScore < rhsScore
+                }
+            }
+
+        return merged.sorted { $0.ip < $1.ip }
+    }
+
+    private func discoveryScore(for device: Device) -> Int {
+        var score = 0
+        if device.mac != nil { score += 2 }
+        if !device.availableServices.isEmpty { score += 2 }
+        if device.type == "Network Device" { score += 1 }
+        return score
     }
     
     // MARK: - History Management
@@ -141,6 +217,54 @@ final class NetworkScannerViewModel {
         savedCredentials[key] = credentials
         saveCredentialsToStorage()
     }
+
+    // MARK: - Sessions
+    private func loadSessions() {
+        if let data = UserDefaults.standard.data(forKey: "savedSessions"),
+           let decoded = try? JSONDecoder().decode([SavedSession].self, from: data) {
+            savedSessions = decoded
+        }
+    }
+
+    private func saveSessionsToStorage() {
+        if let encoded = try? JSONEncoder().encode(savedSessions) {
+            UserDefaults.standard.set(encoded, forKey: "savedSessions")
+        }
+    }
+
+    func saveSession(name: String, device: Device, service: ServiceType, credentials: ConnectionCredentials) {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let session = SavedSession(
+            id: existingSession(for: device, service: service)?.id ?? UUID(),
+            name: normalizedName.isEmpty ? "\(device.name) - \(service.rawValue)" : normalizedName,
+            device: device,
+            serviceType: service,
+            credentials: credentials
+        )
+
+        savedSessions.removeAll { $0.device.ip == device.ip && $0.serviceType == service }
+        savedSessions.insert(session, at: 0)
+        saveSessionsToStorage()
+    }
+
+    func sessions(for serviceType: ServiceType) -> [SavedSession] {
+        savedSessions
+            .filter { session in
+                if serviceType == .ftp {
+                    return session.serviceType == .ftp || session.serviceType == .sftp
+                }
+                return session.serviceType == serviceType
+            }
+    }
+
+    func deleteSession(_ session: SavedSession) {
+        savedSessions.removeAll { $0.id == session.id }
+        saveSessionsToStorage()
+    }
+
+    private func existingSession(for device: Device, service: ServiceType) -> SavedSession? {
+        savedSessions.first { $0.device.ip == device.ip && $0.serviceType == service }
+    }
     
     // MARK: - Device Management
     func toggleFavorite(device: Device, service: ServiceType) {
@@ -174,6 +298,11 @@ final class NetworkScannerViewModel {
     // MARK: - SSH/RDP/FTP Devices (вместо Sessions)
     func devices(for serviceType: ServiceType) -> [Device] {
         let allDevices = devices + history
-        return allDevices.filter { $0.availableServices.contains(serviceType) }
+        return allDevices.filter { device in
+            if serviceType == .ftp {
+                return device.availableServices.contains(.ftp) || device.availableServices.contains(.sftp)
+            }
+            return device.availableServices.contains(serviceType)
+        }
     }
 }
