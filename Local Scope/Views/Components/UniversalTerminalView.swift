@@ -10,6 +10,7 @@
 
 import SwiftUI
 import AppKit
+import Network
 
 struct UniversalTerminalView: View {
     let device: Device
@@ -474,7 +475,7 @@ struct UniversalTerminalView: View {
     }
 
     private func probePort(port: UInt16, title: String) async {
-        let result = await withCheckedContinuation { continuation in
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let connection = NWConnection(
                 host: NWEndpoint.Host(device.ip),
                 port: NWEndpoint.Port(rawValue: port) ?? .init(integerLiteral: port),
