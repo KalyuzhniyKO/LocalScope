@@ -102,8 +102,6 @@ struct PortScanner {
                     finish(true)
                 case .failed:
                     finish(false)
-                case .waiting:
-                    finish(false)
                 default:
                     break
                 }
@@ -111,7 +109,7 @@ struct PortScanner {
             
             connection.start(queue: .global())
             
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
                 finish(false)
             }
         }

@@ -51,11 +51,20 @@ final class FTPClient {
         }
 
         let opened = NSWorkspace.shared.open(url)
+        if opened {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            isConnected = true
+            connectionStatus = "✅ FTP URL открыт системным обработчиком"
+            return
+        }
+
+        let curlCommand = makeFTPCurlCommand()
+        let terminalOpened = executeInTerminal(command: curlCommand)
         try? await Task.sleep(nanoseconds: 300_000_000)
-        isConnected = opened
-        connectionStatus = opened
-            ? "✅ FTP URL открыт системным обработчиком"
-            : "❌ Не удалось открыть FTP URL"
+        isConnected = terminalOpened
+        connectionStatus = terminalOpened
+            ? "✅ FTP открыт в Terminal через curl"
+            : "❌ Не удалось открыть FTP ни через handler, ни через Terminal"
     }
 
     private func makeFTPURL() -> URL? {
@@ -74,6 +83,20 @@ final class FTPClient {
         }
 
         return components.url
+    }
+
+    private func makeFTPCurlCommand() -> String {
+        let authPart: String
+        let normalizedUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedUser.isEmpty {
+            authPart = ""
+        } else if password.isEmpty {
+            authPart = "--user \(shellQuoted(normalizedUser)) "
+        } else {
+            authPart = "--user \(shellQuoted("\(normalizedUser):\(password)")) "
+        }
+
+        return "curl -v \(authPart)ftp://\(host):\(port)/"
     }
 
     private func executeInTerminal(command: String) -> Bool {

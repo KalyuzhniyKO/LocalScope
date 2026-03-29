@@ -271,7 +271,7 @@ struct NetworkScanner {
         await withTaskGroup(of: Bool.self) { group in
             for port in Self.discoveryPorts {
                 group.addTask {
-                    await Self.isPortReachable(ip: ip, port: port, timeout: 250_000_000)
+                    await Self.isPortReachable(ip: ip, port: port, timeout: 900_000_000)
                 }
             }
 
@@ -310,7 +310,7 @@ struct NetworkScanner {
                 switch state {
                 case .ready:
                     finish(true)
-                case .failed, .waiting:
+                case .failed:
                     finish(false)
                 default:
                     break

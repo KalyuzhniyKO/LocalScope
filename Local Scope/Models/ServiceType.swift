@@ -95,10 +95,10 @@ enum ServiceType: String, Codable, CaseIterable, Identifiable, Sendable, Hashabl
             )
         case .rdp:
             return ProtocolEngineProfile(
-                currentEngineName: "System RDP Launcher",
-                currentState: .integrated,
+                currentEngineName: "Internal RDP Probe",
+                currentState: .planned,
                 preferredOpenSourceEngine: "FreeRDP",
-                adoptionNotes: "Сейчас RDP открывается через зарегистрированный macOS RDP-клиент (.rdp файл / rdp://). Для полностью нативного in-app клиента следующим шагом остаётся FreeRDP."
+                adoptionNotes: "Сейчас RDP работает во внутреннем probe-режиме без запуска внешних приложений. Для полноценного in-app RDP-клиента нужен отдельный нативный engine (например FreeRDP)."
             )
         case .vnc:
             return ProtocolEngineProfile(
@@ -135,10 +135,10 @@ enum ServiceType: String, Codable, CaseIterable, Identifiable, Sendable, Hashabl
             )
         case .rdp:
             return ProtocolRuntimeProcedure(
-                worksOutOfBoxOnMac: true,
+                worksOutOfBoxOnMac: false,
                 supportsFullInAppSession: false,
-                primaryActionTitle: "Connect",
-                userFacingMessage: "На macOS RDP открывается через зарегистрированный RDP клиент, если он установлен в системе."
+                primaryActionTitle: "Check",
+                userFacingMessage: "Для RDP сейчас доступна только внутренняя проверка порта без запуска сторонних приложений."
             )
         case .vnc:
             return ProtocolRuntimeProcedure(

@@ -454,23 +454,16 @@ struct UniversalTerminalView: View {
 
     private func openRDPClient() {
         isConnecting = true
-        terminalOutput = "local-scope> open RDP client for \(device.ip):\(serviceType.port)\n"
+        terminalOutput = "local-scope> probe RDP \(device.ip):\(serviceType.port)\n"
 
         Task {
-            let client = RDPClient(
-                host: device.ip,
-                username: credentials?.username ?? "",
-                password: credentials?.password ?? "",
-                port: serviceType.port
-            )
-            await client.connect()
             await MainActor.run {
-                connectionStatus = client.connectionStatus
+                connectionStatus = "🔍 Проверка RDP порта..."
+            }
+            await probePort(port: serviceType.port, title: "RDP")
+            await MainActor.run {
                 isConnecting = false
-                if let error = client.errorMessage {
-                    terminalOutput += error + "\n"
-                }
-                terminalOutput += client.connectionStatus + "\n"
+                terminalOutput += connectionStatus + "\n"
             }
         }
     }
