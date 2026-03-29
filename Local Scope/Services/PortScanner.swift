@@ -77,6 +77,16 @@ struct PortScanner {
     
     // ✅ ПРИВАТНЫЙ метод для проверки порта
     private func isPortOpen(ip: String, port: Int) async -> Bool {
+        if await probePort(ip: ip, port: port, timeout: 1.5) {
+            return true
+        }
+
+        // Иногда первая попытка падает на ARP/маршрутизации — повторяем один раз.
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        return await probePort(ip: ip, port: port, timeout: 1.5)
+    }
+
+    private func probePort(ip: String, port: Int, timeout: TimeInterval) async -> Bool {
         await withCheckedContinuation { continuation in
             let connection = NWConnection(
                 host: NWEndpoint.Host(ip),
@@ -113,7 +123,7 @@ struct PortScanner {
             
             connection.start(queue: .global())
             
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                 finish(false)
             }
         }

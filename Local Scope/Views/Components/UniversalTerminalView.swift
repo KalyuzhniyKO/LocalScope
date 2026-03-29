@@ -522,7 +522,7 @@ struct UniversalTerminalView: View {
 
             connection.start(queue: .global())
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
                 guard !resumed else { return }
                 resumed = true
                 connection.cancel()
