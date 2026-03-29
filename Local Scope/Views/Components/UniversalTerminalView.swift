@@ -10,7 +10,6 @@
 
 import SwiftUI
 import AppKit
-import Network
 
 struct UniversalTerminalView: View {
     let device: Device
@@ -21,10 +20,7 @@ struct UniversalTerminalView: View {
     @State private var connectionStatus: String = "Готов к подключению"
     @State private var isConnecting = false
     @State private var terminalOutput = ""
-    @State private var terminalInput = ""
-    @State private var sessionIsRunning = false
     @State private var hasStartedInitialFlow = false
-    @State private var processSession = EmbeddedProcessSession()
     @State private var vncNativeController: VNCNativeSessionController?
     
     init(device: Device, serviceType: ServiceType, credentials: ConnectionCredentials?) {
@@ -207,7 +203,6 @@ struct UniversalTerminalView: View {
             }
         }
         .onDisappear {
-            processSession.stop()
             if let controller = vncNativeController {
                 Task {
                     await controller.disconnect()
@@ -230,23 +225,6 @@ struct UniversalTerminalView: View {
                 .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 260)
                 .background(Color.black.opacity(0.65))
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-
-                HStack(spacing: 12) {
-                    TextField("Ввод доступен только для встроенных сессий", text: $terminalInput)
-                        .textFieldStyle(.roundedBorder)
-
-                    Button("Send") {
-                        sendInput()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!sessionIsRunning || terminalInput.isEmpty)
-
-                    Button("Stop") {
-                        stopSession()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!sessionIsRunning)
-                }
             }
         } else if serviceType == .vnc,
                   VNCNativeBridge.shared.status.isAvailable,
@@ -358,7 +336,6 @@ struct UniversalTerminalView: View {
     }
 
     private func connectCurrentService() {
-        stopSession()
         terminalOutput = ""
 
         switch serviceType {
@@ -496,43 +473,6 @@ struct UniversalTerminalView: View {
         }
     }
 
-    private func startEmbeddedSession(title: String, command: String) {
-        stopSession()
-
-        terminalOutput = "local-scope> \(command)\n"
-        connectionStatus = "🔄 Запуск встроенной \(title)-сессии..."
-        isConnecting = true
-
-        processSession.start(
-            command: command,
-            onOutput: { chunk in
-                terminalOutput += chunk
-            },
-            onExit: { code in
-                sessionIsRunning = false
-                isConnecting = false
-                connectionStatus = code == 0
-                    ? "✅ Встроенная \(title)-сессия завершена"
-                    : "⚠️ Встроенная \(title)-сессия завершилась с кодом \(code)"
-            }
-        )
-
-        sessionIsRunning = true
-        isConnecting = false
-        connectionStatus = "✅ Встроенная \(title)-сессия запущена"
-    }
-
-    private func sendInput() {
-        guard !terminalInput.isEmpty else { return }
-        processSession.send(terminalInput + "\n")
-        terminalInput = ""
-    }
-
-    private func stopSession() {
-        processSession.stop()
-        sessionIsRunning = false
-    }
-
     private func probePort(port: UInt16, title: String) async {
         let result = await withCheckedContinuation { continuation in
             let connection = NWConnection(
@@ -573,76 +513,6 @@ struct UniversalTerminalView: View {
         connectionStatus = result
             ? "✅ \(title) сервис отвечает на \(device.ip):\(port). Соединение остаётся внутри Local Scope."
             : "❌ \(title) сервис недоступен на \(device.ip):\(port)"
-    }
-}
-
-final class EmbeddedProcessSession {
-    private var process: Process?
-    private var inputPipe: Pipe?
-    private var outputPipe: Pipe?
-    private var errorPipe: Pipe?
-
-    func start(command: String, onOutput: @escaping (String) -> Void, onExit: @escaping (Int32) -> Void) {
-        stop()
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
-        process.arguments = ["-q", "/dev/null", "/bin/zsh", "-lc", command]
-
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        let emit: (FileHandle) -> Void = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
-            DispatchQueue.main.async {
-                onOutput(chunk)
-            }
-        }
-
-        outputPipe.fileHandleForReading.readabilityHandler = emit
-        errorPipe.fileHandleForReading.readabilityHandler = emit
-
-        process.terminationHandler = { process in
-            DispatchQueue.main.async {
-                onExit(process.terminationStatus)
-            }
-        }
-
-        do {
-            try process.run()
-            self.process = process
-            self.inputPipe = inputPipe
-            self.outputPipe = outputPipe
-            self.errorPipe = errorPipe
-        } catch {
-            DispatchQueue.main.async {
-                onOutput("❌ Не удалось запустить встроенную сессию: \(error.localizedDescription)\n")
-                onExit(-1)
-            }
-        }
-    }
-
-    func send(_ text: String) {
-        guard let data = text.data(using: .utf8) else { return }
-        inputPipe?.fileHandleForWriting.write(data)
-    }
-
-    func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        errorPipe?.fileHandleForReading.readabilityHandler = nil
-        if process?.isRunning == true {
-            process?.terminate()
-        }
-        process = nil
-        inputPipe = nil
-        outputPipe = nil
-        errorPipe = nil
     }
 }
 
