@@ -342,54 +342,59 @@ struct UniversalTerminalView: View {
     
     // MARK: - Connection Methods (ВНУТРИ ПРИЛОЖЕНИЯ)
     private func connectSSH() {
-        connectCurrentService()
+        connect(service: .ssh)
     }
     
     private func connectRDP() {
-        connectCurrentService()
+        connect(service: .rdp)
     }
     
     private func connectVNC() {
-        connectCurrentService()
+        connect(service: .vnc)
     }
 
     private func connectFTP() {
-        connectCurrentService()
+        connect(service: .ftp)
     }
 
     private func connectCurrentService() {
+        connect(service: serviceType)
+    }
+
+    private func connect(service: ServiceType) {
         stopSession()
         terminalOutput = ""
 
-        switch serviceType {
+        switch service {
         case .ssh:
-            openSSHInTerminal()
+            openSSHInTerminal(portOverride: service.port)
         case .sftp:
             openSFTPInTerminal()
         case .ftp:
-            openFTPHandler()
+            openFTPHandler(portOverride: service.port)
         case .rdp:
-            openRDPClient()
+            openRDPClient(portOverride: service.port)
         case .vnc:
-            openVNCClient()
+            openVNCClient(portOverride: service.port)
         }
     }
 
-    private func openSSHInTerminal() {
+    private func openSSHInTerminal(portOverride: UInt16? = nil) {
         guard let credentials else {
             connectionStatus = "❌ Для SSH нужны учётные данные"
             return
         }
 
+        let effectivePort = portOverride ?? serviceType.port
         isConnecting = true
-        terminalOutput = "local-scope> ssh -tt -o StrictHostKeyChecking=accept-new -p \(serviceType.port) '\(credentials.username)@\(device.ip)'\n"
+        terminalOutput = "local-scope> ssh -tt -o StrictHostKeyChecking=accept-new -p \(effectivePort) '\(credentials.username)@\(device.ip)'\n"
 
         Task {
             let client = SSHClient(
                 host: device.ip,
                 username: credentials.username,
                 password: credentials.password,
-                port: serviceType.port
+                port: effectivePort
             )
             await client.connect()
             await MainActor.run {
@@ -426,21 +431,22 @@ struct UniversalTerminalView: View {
         }
     }
 
-    private func openFTPHandler() {
+    private func openFTPHandler(portOverride: UInt16? = nil) {
         guard let credentials else {
             connectionStatus = "❌ Для FTP нужны учётные данные"
             return
         }
 
+        let port = portOverride ?? ServiceType.ftp.port
         isConnecting = true
-        terminalOutput = "local-scope> open ftp://\(device.ip):21\n"
+        terminalOutput = "local-scope> open ftp://\(device.ip):\(port)\n"
 
         Task {
             let client = FTPClient(
                 host: device.ip,
                 username: credentials.username,
                 password: credentials.password,
-                port: serviceType.port,
+                port: port,
                 useSFTP: false
             )
             await client.connect()
@@ -452,16 +458,17 @@ struct UniversalTerminalView: View {
         }
     }
 
-    private func openRDPClient() {
+    private func openRDPClient(portOverride: UInt16? = nil) {
         isConnecting = true
-        terminalOutput = "local-scope> open RDP client for \(device.ip):\(serviceType.port)\n"
+        let port = portOverride ?? ServiceType.rdp.port
+        terminalOutput = "local-scope> open RDP client for \(device.ip):\(port)\n"
 
         Task {
             let client = RDPClient(
                 host: device.ip,
                 username: credentials?.username ?? "",
                 password: credentials?.password ?? "",
-                port: serviceType.port
+                port: port
             )
             await client.connect()
             await MainActor.run {
@@ -475,7 +482,7 @@ struct UniversalTerminalView: View {
         }
     }
 
-    private func openVNCClient() {
+    private func openVNCClient(portOverride: UInt16? = nil) {
         if VNCNativeBridge.shared.status.isAvailable,
            let controller = vncNativeController {
             Task {
@@ -485,14 +492,15 @@ struct UniversalTerminalView: View {
         }
 
         isConnecting = true
-        terminalOutput = "local-scope> open vnc://\(device.ip):\(serviceType.port)\n"
+        let port = portOverride ?? ServiceType.vnc.port
+        terminalOutput = "local-scope> open vnc://\(device.ip):\(port)\n"
 
         Task {
             let client = VNCClient(
                 host: device.ip,
                 username: credentials?.username,
                 password: credentials?.password,
-                port: serviceType.port
+                port: port
             )
             await client.connect()
             await MainActor.run {

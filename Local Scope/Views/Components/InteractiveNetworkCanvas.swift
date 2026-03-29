@@ -34,17 +34,18 @@ struct InteractiveNetworkCanvas: View {
                     )
                 }
 
-                ForEach(devices) { device in
+                ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
                     let position = calculatePosition(
-                        index: index(of: device),
+                        index: index,
                         total: devices.count,
                         center: center,
                         baseRadius: baseRadius
                     )
 
                     DeviceNode(device: device)
-                        .position(position)
+                        .frame(width: DeviceNode.size.width, height: DeviceNode.size.height)
                         .contentShape(RoundedRectangle(cornerRadius: 12))
+                        .position(position)
                         .zIndex(1)
                         .onTapGesture(count: 2) {
                             handleDoubleClick(device)
@@ -142,9 +143,6 @@ struct InteractiveNetworkCanvas: View {
         }
     }
 
-    private func index(of device: Device) -> Int {
-        devices.firstIndex(where: { $0.id == device.id }) ?? 0
-    }
 
     private func drawBackground(
         context: GraphicsContext,
