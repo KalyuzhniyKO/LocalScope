@@ -103,7 +103,9 @@ struct PortScanner {
                 case .failed:
                     finish(false)
                 case .waiting:
-                    finish(false)
+                    // waiting может быть временным состоянием на медленной сети —
+                    // даём шансу соединению перейти в .ready до таймаута
+                    break
                 default:
                     break
                 }
@@ -111,7 +113,7 @@ struct PortScanner {
             
             connection.start(queue: .global())
             
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
                 finish(false)
             }
         }

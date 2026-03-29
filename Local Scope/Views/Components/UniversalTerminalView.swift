@@ -3,9 +3,9 @@
 //  Local Scope
 //
 //  Текущий runtime-подход:
-//  - SSH / SFTP → системный Terminal + ssh/sftp
-//  - FTP → системный macOS handler для ftp://
-//  - RDP / VNC → зарегистрированные системные клиенты / handlers
+//  - SSH / SFTP / FTP → встроенный процесс внутри Local Scope
+//  - RDP → встроенный probe порта/доступности
+//  - VNC → нативный bridge (если доступен) либо системный fallback
 //
 
 import SwiftUI
@@ -291,11 +291,11 @@ struct UniversalTerminalView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                Label("Используется системный клиент macOS.", systemImage: "link")
+                Label("Используется fallback-режим подключения.", systemImage: "link")
                     .font(.headline)
                     .foregroundStyle(.white)
 
-                Text("Для \(serviceType.rawValue) Local Scope запускает системный клиент или системный URL handler, чтобы подключение действительно открывалось.")
+                Text("Для \(serviceType.rawValue) сейчас используется fallback-режим (проверка доступности/запуск системного handler).")
                     .foregroundStyle(.white.opacity(0.8))
 
                 HStack(spacing: 12) {
@@ -386,23 +386,8 @@ struct UniversalTerminalView: View {
         }
 
         let effectivePort = portOverride ?? serviceType.port
-        isConnecting = true
-        terminalOutput = "local-scope> ssh -tt -o StrictHostKeyChecking=accept-new -p \(effectivePort) '\(credentials.username)@\(device.ip)'\n"
-
-        Task {
-            let client = SSHClient(
-                host: device.ip,
-                username: credentials.username,
-                password: credentials.password,
-                port: effectivePort
-            )
-            await client.connect()
-            await MainActor.run {
-                connectionStatus = client.connectionStatus
-                isConnecting = false
-                terminalOutput += client.connectionStatus + "\n"
-            }
-        }
+        let command = "ssh -tt -o StrictHostKeyChecking=accept-new -p \(effectivePort) '\(credentials.username)@\(device.ip)'"
+        startEmbeddedSession(title: "SSH", command: command)
     }
 
     private func openSFTPInTerminal() {
@@ -411,24 +396,8 @@ struct UniversalTerminalView: View {
             return
         }
 
-        isConnecting = true
-        terminalOutput = "local-scope> sftp -P 22 '\(credentials.username)@\(device.ip)'\n"
-
-        Task {
-            let client = FTPClient(
-                host: device.ip,
-                username: credentials.username,
-                password: credentials.password,
-                port: 22,
-                useSFTP: true
-            )
-            await client.connect()
-            await MainActor.run {
-                connectionStatus = client.connectionStatus
-                isConnecting = false
-                terminalOutput += client.connectionStatus + "\n"
-            }
-        }
+        let command = "sftp -P 22 '\(credentials.username)@\(device.ip)'"
+        startEmbeddedSession(title: "SFTP", command: command)
     }
 
     private func openFTPHandler(portOverride: UInt16? = nil) {
@@ -438,47 +407,17 @@ struct UniversalTerminalView: View {
         }
 
         let port = portOverride ?? ServiceType.ftp.port
-        isConnecting = true
-        terminalOutput = "local-scope> open ftp://\(device.ip):\(port)\n"
-
-        Task {
-            let client = FTPClient(
-                host: device.ip,
-                username: credentials.username,
-                password: credentials.password,
-                port: port,
-                useSFTP: false
-            )
-            await client.connect()
-            await MainActor.run {
-                connectionStatus = client.connectionStatus
-                isConnecting = false
-                terminalOutput += client.connectionStatus + "\n"
-            }
-        }
+        let escapedUser = shellQuoted(credentials.username)
+        let escapedPassword = shellQuoted(credentials.password)
+        let command = "curl --silent --show-error --fail --user \(escapedUser):\(escapedPassword) ftp://\(device.ip):\(port)/ --list-only"
+        startEmbeddedSession(title: "FTP", command: command)
     }
 
     private func openRDPClient(portOverride: UInt16? = nil) {
-        isConnecting = true
         let port = portOverride ?? ServiceType.rdp.port
-        terminalOutput = "local-scope> open RDP client for \(device.ip):\(port)\n"
-
+        terminalOutput = "local-scope> rdp probe \(device.ip):\(port)\n"
         Task {
-            let client = RDPClient(
-                host: device.ip,
-                username: credentials?.username ?? "",
-                password: credentials?.password ?? "",
-                port: port
-            )
-            await client.connect()
-            await MainActor.run {
-                connectionStatus = client.connectionStatus
-                isConnecting = false
-                if let error = client.errorMessage {
-                    terminalOutput += error + "\n"
-                }
-                terminalOutput += client.connectionStatus + "\n"
-            }
+            await probePort(port: port, title: "RDP")
         }
     }
 
@@ -548,6 +487,10 @@ struct UniversalTerminalView: View {
         sessionIsRunning = false
     }
 
+    private func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
     private func probePort(port: UInt16, title: String) async {
         let result = await withCheckedContinuation { continuation in
             let connection = NWConnection(
@@ -566,10 +509,12 @@ struct UniversalTerminalView: View {
                     resumed = true
                     connection.cancel()
                     continuation.resume(returning: true)
-                case .failed, .waiting:
+                case .failed:
                     resumed = true
                     connection.cancel()
                     continuation.resume(returning: false)
+                case .waiting:
+                    break
                 default:
                     break
                 }

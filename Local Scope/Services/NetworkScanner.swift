@@ -310,8 +310,11 @@ struct NetworkScanner {
                 switch state {
                 case .ready:
                     finish(true)
-                case .failed, .waiting:
+                case .failed:
                     finish(false)
+                case .waiting:
+                    // waiting не считаем мгновенным отказом — дожидаемся timeout
+                    break
                 default:
                     break
                 }
