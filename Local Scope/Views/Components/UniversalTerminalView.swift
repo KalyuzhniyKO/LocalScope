@@ -110,7 +110,7 @@ struct UniversalTerminalView: View {
                             icon: "terminal.fill",
                             color: .green
                         ) {
-                            connect(service: .ssh)
+                            connectSSH(port: ServiceType.ssh.port)
                         }
                         
                         QuickConnectButton(
@@ -118,7 +118,7 @@ struct UniversalTerminalView: View {
                             icon: "desktopcomputer",
                             color: .blue
                         ) {
-                            connect(service: .rdp)
+                            connectRDP(port: ServiceType.rdp.port)
                         }
                         
                         QuickConnectButton(
@@ -126,7 +126,7 @@ struct UniversalTerminalView: View {
                             icon: "display",
                             color: .orange
                         ) {
-                            connect(service: .vnc)
+                            connectVNC(port: ServiceType.vnc.port)
                         }
                         
                         QuickConnectButton(
@@ -134,7 +134,7 @@ struct UniversalTerminalView: View {
                             icon: "folder.fill",
                             color: .yellow
                         ) {
-                            connect(service: .ftp)
+                            connectFTP(service: .ftp, port: ServiceType.ftp.port)
                         }
                     }
                     
@@ -181,7 +181,7 @@ struct UniversalTerminalView: View {
         case .vnc:
             connectVNC(port: service.port)
         case .ftp, .sftp:
-            connectFTP(service: service)
+            connectFTP(service: service, port: service.port)
         }
     }
 
@@ -246,7 +246,7 @@ struct UniversalTerminalView: View {
         }
     }
 
-    private func connectFTP(service: ServiceType) {
+    private func connectFTP(service: ServiceType, port: UInt16) {
         Task { @MainActor in
             isConnecting = true
             connectionStatus = service == .sftp ? "📁 Открытие SFTP..." : "📁 Открытие FTP..."
@@ -256,7 +256,7 @@ struct UniversalTerminalView: View {
                 host: device.ip,
                 username: creds.username,
                 password: creds.password,
-                port: service.port,
+                port: port,
                 useSFTP: service == .sftp
             )
             await client.connect()
