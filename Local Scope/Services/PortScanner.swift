@@ -2,17 +2,13 @@
 //  PortScanner.swift
 //  Local Scope
 //
-//  ИСПРАВЛЕНО:
-//  ✅ Убран дубликат метода scanDevice
-//  ✅ Один метод доступен из ViewModel
-//
 
 import Foundation
-import Network
+@preconcurrency import Network
 
 actor PortScanner {
-    
-    // ✅ ПУБЛИЧНЫЙ метод для сканирования всех устройств
+    private let timeout: TimeInterval = 0.5
+
     func scanServicesForDevices(_ devices: [Device]) async -> [Device] {
         await withTaskGroup(of: Device.self) { group -> [Device] in
             for device in devices {
@@ -20,7 +16,7 @@ actor PortScanner {
                     await self.scanDevice(device)
                 }
             }
-            
+
             var scannedDevices: [Device] = []
             for await device in group {
                 scannedDevices.append(device)
@@ -28,57 +24,70 @@ actor PortScanner {
             return scannedDevices
         }
     }
-    
-    // ✅ ПУБЛИЧНЫЙ метод для сканирования одного устройства
+
     func scanDevice(_ device: Device) async -> Device {
+        let openPorts = await scanSupportedPorts(ip: device.ip)
         var updatedDevice = device
-        var services: [ServiceType] = []
-        
-        let portsToCheck: [(ServiceType, Int)] = [
-            (.ssh, 22),
-            (.rdp, 3389),
-            (.ftp, 21),
-            (.vnc, 5900)
-        ]
-        
-        for (service, port) in portsToCheck {
-            if await isPortOpen(ip: device.ip, port: port) {
-                services.append(service)
-            }
-        }
-        
-        updatedDevice.availableServices = services
+        updatedDevice.availableServices = services(for: openPorts)
+        updatedDevice.lastSeen = Date()
         return updatedDevice
     }
-    
-    // ✅ ПРИВАТНЫЙ метод для проверки порта
-    private func isPortOpen(ip: String, port: Int) async -> Bool {
+
+    private func scanSupportedPorts(ip: String) async -> Set<UInt16> {
+        let ports = Set(ServiceType.allCases.map(\.port))
+        let scanTimeout = timeout
+
+        return await withTaskGroup(of: (UInt16, Bool).self) { group in
+            for port in ports {
+                group.addTask {
+                    let isOpen = await Self.isPortOpen(ip: ip, port: port, timeout: scanTimeout)
+                    return (port, isOpen)
+                }
+            }
+
+            var openPorts = Set<UInt16>()
+            for await (port, isOpen) in group where isOpen {
+                openPorts.insert(port)
+            }
+            return openPorts
+        }
+    }
+
+    private func services(for openPorts: Set<UInt16>) -> [ServiceType] {
+        ServiceType.allCases.filter { service in
+            openPorts.contains(service.port)
+        }
+    }
+
+    nonisolated private static func isPortOpen(ip: String, port: UInt16, timeout: TimeInterval) async -> Bool {
         await withCheckedContinuation { continuation in
+            guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                continuation.resume(returning: false)
+                return
+            }
+
             let connection = NWConnection(
                 host: NWEndpoint.Host(ip),
-                port: NWEndpoint.Port(integerLiteral: NWEndpoint.Port.IntegerLiteralType(port)),
+                port: endpointPort,
                 using: .tcp
             )
-            
-            let completion = PortScanCompletion()
-            
+            let completion = PortScanCompletion(connection: connection, continuation: continuation)
+
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    completion.resumeOnce(connection: connection, continuation: continuation, returning: true)
-                    
+                    completion.resume(returning: true)
                 case .failed, .waiting:
-                    completion.resumeOnce(connection: connection, continuation: continuation, returning: false)
-                    
+                    completion.resume(returning: false)
                 default:
                     break
                 }
             }
-            
-            connection.start(queue: .global())
-            
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                completion.resumeOnce(connection: connection, continuation: continuation, returning: false)
+
+            connection.start(queue: .global(qos: .utility))
+
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
+                completion.resume(returning: false)
             }
         }
     }
@@ -86,13 +95,16 @@ actor PortScanner {
 
 private final class PortScanCompletion: @unchecked Sendable {
     private let lock = NSLock()
+    private let connection: NWConnection
+    private let continuation: CheckedContinuation<Bool, Never>
     private var didResume = false
 
-    func resumeOnce(
-        connection: NWConnection,
-        continuation: CheckedContinuation<Bool, Never>,
-        returning result: Bool
-    ) {
+    init(connection: NWConnection, continuation: CheckedContinuation<Bool, Never>) {
+        self.connection = connection
+        self.continuation = continuation
+    }
+
+    func resume(returning result: Bool) {
         lock.lock()
         guard !didResume else {
             lock.unlock()
@@ -101,6 +113,7 @@ private final class PortScanCompletion: @unchecked Sendable {
         didResume = true
         lock.unlock()
 
+        connection.stateUpdateHandler = nil
         connection.cancel()
         continuation.resume(returning: result)
     }

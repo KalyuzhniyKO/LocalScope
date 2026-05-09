@@ -7,7 +7,7 @@ import SwiftUI
 
 struct AddDeviceSheet: View {
     let serviceType: ServiceType
-    let onAdd: (Device) -> Void
+    let onAdd: (String, String) -> Void
     @Environment(\.dismiss) var dismiss
     
     @State private var deviceName: String = ""
@@ -27,9 +27,9 @@ struct AddDeviceSheet: View {
                         .foregroundStyle(serviceType.color)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Add \(serviceType.rawValue) Device")
+                    Text("Add Device")
                         .font(.title2.bold())
-                    Text("Enter device details manually")
+                    Text("Enter a name and IP address. Ports will be scanned automatically.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -86,15 +86,7 @@ struct AddDeviceSheet: View {
                 
                 Button("Add Device") {
                     if validateInput() {
-                        let newDevice = Device(
-                            name: deviceName.isEmpty ? "Manual Device" : deviceName,
-                            ip: ipAddress,
-                            mac: nil,
-                            type: "Manual",
-                            lastSeen: Date(),
-                            availableServices: [serviceType]
-                        )
-                        onAdd(newDevice)
+                        onAdd(deviceName, ipAddress.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -107,7 +99,7 @@ struct AddDeviceSheet: View {
     }
     
     private func validateInput() -> Bool {
-        let parts = ipAddress.split(separator: ".")
+        let parts = ipAddress.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ".")
         guard parts.count == 4 else {
             errorMessage = "Invalid IP address format"
             showError = true
