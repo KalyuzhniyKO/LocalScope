@@ -37,6 +37,9 @@ struct ContentView: View {
                     },
                     onAddToFavorites: { device, service in
                         viewModel.toggleFavorite(device: device, service: service)
+                    },
+                    onScanPorts: { device in
+                        viewModel.rescanDevice(device)
                     }
                 )
                 .tabItem {
@@ -132,6 +135,8 @@ struct ContentView: View {
                         ? Color.green.opacity(0.2)
                         : viewModel.syncStatus.contains("⚠️")
                         ? Color.orange.opacity(0.2)
+                        : viewModel.syncStatus.contains("🔍")
+                        ? Color.blue.opacity(0.2)
                         : Color.red.opacity(0.2)
                     )
             }
@@ -151,9 +156,9 @@ struct ContentView: View {
         .sheet(isPresented: $showAddDeviceSheet) {
             AddDeviceSheet(
                 serviceType: addDeviceServiceType,
-                onAdd: { device in
+                onAdd: { name, ip in
                     showAddDeviceSheet = false
-                    viewModel.addManualDevice(device)
+                    viewModel.addManualDevice(name: name, ip: ip, preferredService: addDeviceServiceType)
                 }
             )
         }

@@ -24,6 +24,7 @@ struct InteractiveNetworkCanvas: View {
     let onDeviceSelect: (Device) -> Void
     let onDeviceConnect: ((Device, ServiceType) -> Void)?
     let onAddToFavorites: ((Device, ServiceType) -> Void)?
+    let onScanPorts: ((Device) -> Void)?
     
     var body: some View {
         GeometryReader { geometry in
@@ -77,11 +78,15 @@ struct InteractiveNetworkCanvas: View {
                             }
                             
                             Divider()
-                            
-                            if contextDevice.availableServices.isEmpty {
-                                Text("Сканирование портов...")
-                                    .foregroundStyle(.secondary)
-                            } else {
+
+                            Button {
+                                print("✅ Scan ports for \(contextDevice.ip)")
+                                onScanPorts?(contextDevice)
+                            } label: {
+                                Label("Пересканировать порты", systemImage: "dot.radiowaves.left.and.right")
+                            }
+
+                            if !contextDevice.availableServices.isEmpty {
                                 // ✅ ПОДКЛЮЧИТЬСЯ
                                 Section("Подключиться") {
                                     ForEach(contextDevice.availableServices, id: \.self) { service in
@@ -89,7 +94,7 @@ struct InteractiveNetworkCanvas: View {
                                             print("✅ Connect via \(service.rawValue)")
                                             onDeviceConnect?(contextDevice, service)
                                         } label: {
-                                            Label(service.rawValue, systemImage: service.icon)
+                                            Label("Connect via \(service.rawValue)", systemImage: service.icon)
                                         }
                                     }
                                 }

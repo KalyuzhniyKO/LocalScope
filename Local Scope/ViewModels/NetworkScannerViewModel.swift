@@ -156,24 +156,82 @@ final class NetworkScannerViewModel {
         }
     }
     
-    func addManualDevice(_ device: Device) {
-        if !devices.contains(where: { $0.ip == device.ip }) {
-            devices.append(device)
-        }
-    }
-    
-    func rescanDevice(_ device: Device) {
+    func addManualDevice(name: String, ip: String, preferredService: ServiceType) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIP = ip.trimmingCharacters(in: .whitespacesAndNewlines)
+
         Task {
-            let updatedDevice = await portScanner.scanDevice(device)
-            if let index = devices.firstIndex(where: { $0.id == device.id }) {
-                devices[index] = updatedDevice
+            syncStatus = "🔍 Scanning ports for \(trimmedIP)..."
+
+            let existingDevice = devices.first(where: { $0.ip == trimmedIP })
+                ?? history.first(where: { $0.ip == trimmedIP })
+            let provisionalName = trimmedName.isEmpty ? (existingDevice?.name ?? "Manual Device") : trimmedName
+            let provisionalDevice = Device(
+                id: existingDevice?.id ?? UUID(),
+                name: provisionalName,
+                ip: trimmedIP,
+                mac: existingDevice?.mac,
+                type: existingDevice?.type ?? "Manual",
+                lastSeen: Date(),
+                availableServices: existingDevice?.availableServices ?? [],
+                favoriteServices: existingDevice?.favoriteServices ?? []
+            )
+
+            let scannedDevice = await portScanner.scanDevice(provisionalDevice)
+            upsertDevice(scannedDevice)
+            await saveHistory()
+
+            let serviceList = scannedDevice.availableServices.map(\.rawValue).joined(separator: ", ")
+            if scannedDevice.availableServices.isEmpty {
+                syncStatus = "⚠️ Added device: no known ports open"
+            } else if scannedDevice.availableServices.contains(preferredService) {
+                syncStatus = "✅ Added device: \(serviceList) found"
+            } else {
+                syncStatus = "⚠️ Added device: \(serviceList) found; \(preferredService.rawValue) is not available"
             }
         }
     }
-    
+
+    func rescanDevice(_ device: Device) {
+        Task {
+            syncStatus = "🔍 Scanning ports for \(device.ip)..."
+            let updatedDevice = await portScanner.scanDevice(device)
+            upsertDevice(updatedDevice)
+            await saveHistory()
+
+            if updatedDevice.availableServices.isEmpty {
+                syncStatus = "⚠️ \(device.name): no known ports open"
+            } else {
+                let serviceList = updatedDevice.availableServices.map(\.rawValue).joined(separator: ", ")
+                syncStatus = "✅ \(device.name): \(serviceList) found"
+            }
+        }
+    }
+
+    private func upsertDevice(_ device: Device) {
+        var updatedDevice = device
+        updatedDevice.lastSeen = Date()
+
+        if let index = devices.firstIndex(where: { $0.ip == updatedDevice.ip }) {
+            devices[index] = updatedDevice
+        } else {
+            devices.append(updatedDevice)
+        }
+
+        if let historyIndex = history.firstIndex(where: { $0.ip == updatedDevice.ip }) {
+            history[historyIndex] = updatedDevice
+        }
+    }
+
     // MARK: - SSH/RDP/FTP Devices (вместо Sessions)
     func devices(for serviceType: ServiceType) -> [Device] {
-        let allDevices = devices + history
-        return allDevices.filter { $0.availableServices.contains(serviceType) }
+        uniqueDevicesByIP(devices + history)
+            .filter { $0.availableServices.contains(serviceType) }
+    }
+
+    private func uniqueDevicesByIP(_ allDevices: [Device]) -> [Device] {
+        Dictionary(grouping: allDevices, by: { $0.ip })
+            .compactMap { $0.value.max(by: { $0.lastSeen < $1.lastSeen }) }
+            .sorted(by: { $0.lastSeen > $1.lastSeen })
     }
 }

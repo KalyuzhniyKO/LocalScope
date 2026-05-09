@@ -15,6 +15,7 @@ struct NetworkMapView: View {
     let onDeviceSelect: (Device) -> Void
     let onDeviceConnect: (Device, ServiceType) -> Void
     let onAddToFavorites: (Device, ServiceType) -> Void
+    let onScanPorts: (Device) -> Void
     
     var body: some View {
         VStack(spacing: 0) {
@@ -88,7 +89,8 @@ struct NetworkMapView: View {
                     localIP: localIP,
                     onDeviceSelect: onDeviceSelect,
                     onDeviceConnect: onDeviceConnect,
-                    onAddToFavorites: onAddToFavorites
+                    onAddToFavorites: onAddToFavorites,
+                    onScanPorts: onScanPorts
                 )
                 .padding()
             }
