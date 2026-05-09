@@ -11,6 +11,12 @@
 
 import SwiftUI
 
+private struct IndexedDevice: Identifiable {
+    let index: Int
+    let device: Device
+    var id: UUID { device.id }
+}
+
 struct InteractiveNetworkCanvas: View {
     let devices: [Device]
     let localIP: String
@@ -23,18 +29,19 @@ struct InteractiveNetworkCanvas: View {
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
             let radius = min(geometry.size.width, geometry.size.height) / 3
             let visibleDevices = Array(devices.prefix(16))
+            let indexedDevices = visibleDevices.enumerated().map { IndexedDevice(index: $0.offset, device: $0.element) }
             
             ZStack {
                 Canvas { context, size in
                     drawBackground(context: context, size: size, center: center, radius: radius, deviceCount: visibleDevices.count)
                 }
                 
-                ForEach(visibleDevices.indices, id: \.self) { index in
-                    let device = visibleDevices[index]
-                    let position = calculatePosition(index: index, total: visibleDevices.count, center: center, radius: radius)
+                ForEach(indexedDevices) { indexedDevice in
+                    let device = indexedDevice.device
+                    let position = calculatePosition(index: indexedDevice.index, total: visibleDevices.count, center: center, radius: radius)
                     
                     DeviceNode(device: device)
-                        .position(position)
+                        .frame(width: 110, height: 85)
                         .contentShape(Rectangle())
                         // ✅ ИСПРАВЛЕНО: Используем simultaneousGesture
                         .simultaneousGesture(
@@ -113,6 +120,7 @@ struct InteractiveNetworkCanvas: View {
                                 }
                             }
                         }
+                        .position(position)
                 }
             }
         }

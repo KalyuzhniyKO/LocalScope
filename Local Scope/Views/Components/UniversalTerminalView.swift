@@ -20,11 +20,6 @@ struct UniversalTerminalView: View {
     let credentials: ConnectionCredentials?
     @Environment(\.dismiss) var dismiss
     
-    @State private var rdpClient: RDPClient
-    @State private var sshClient: SSHClient
-    @State private var vncClient: VNCClient
-    @State private var ftpClient: FTPClient
-    
     @State private var connectionStatus: String = "Готов к подключению"
     @State private var isConnecting = false
     
@@ -32,33 +27,6 @@ struct UniversalTerminalView: View {
         self.device = device
         self.serviceType = serviceType
         self.credentials = credentials
-        
-        let creds = credentials ?? ConnectionCredentials(username: "", password: "", saveCredentials: false)
-        
-        _rdpClient = State(initialValue: RDPClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password
-        ))
-        
-        _sshClient = State(initialValue: SSHClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password
-        ))
-        
-        _vncClient = State(initialValue: VNCClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password
-        ))
-        
-        _ftpClient = State(initialValue: FTPClient(
-            host: device.ip,
-            username: creds.username,
-            password: creds.password,
-            useSFTP: serviceType == .sftp
-        ))
     }
     
     var body: some View {
@@ -142,7 +110,7 @@ struct UniversalTerminalView: View {
                             icon: "terminal.fill",
                             color: .green
                         ) {
-                            connectSSH()
+                            connect(service: .ssh)
                         }
                         
                         QuickConnectButton(
@@ -150,7 +118,7 @@ struct UniversalTerminalView: View {
                             icon: "desktopcomputer",
                             color: .blue
                         ) {
-                            connectRDP()
+                            connect(service: .rdp)
                         }
                         
                         QuickConnectButton(
@@ -158,7 +126,7 @@ struct UniversalTerminalView: View {
                             icon: "display",
                             color: .orange
                         ) {
-                            connectVNC()
+                            connect(service: .vnc)
                         }
                         
                         QuickConnectButton(
@@ -166,7 +134,7 @@ struct UniversalTerminalView: View {
                             icon: "folder.fill",
                             color: .yellow
                         ) {
-                            connectFTP()
+                            connect(service: .ftp)
                         }
                     }
                     
@@ -194,98 +162,105 @@ struct UniversalTerminalView: View {
             autoConnect()
         }
     }
-    
+
     // MARK: - Auto Connect
     private func autoConnect() {
-        switch serviceType {
-        case .ssh:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectSSH()
-            }
-        case .rdp:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectRDP()
-            }
-        case .ftp, .sftp:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectFTP()
-            }
-        case .vnc:
-            Task {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                connectVNC()
-            }
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            connect(service: serviceType)
         }
     }
-    
+
     // MARK: - Connection Methods (ТОЛЬКО ВСТРОЕННЫЕ)
-    private func connectSSH() {
+    private func connect(service: ServiceType) {
+        switch service {
+        case .ssh:
+            connectSSH(port: service.port)
+        case .rdp:
+            connectRDP(port: service.port)
+        case .vnc:
+            connectVNC(port: service.port)
+        case .ftp, .sftp:
+            connectFTP(service: service)
+        }
+    }
+
+    private func connectSSH(port: UInt16) {
         Task { @MainActor in
             isConnecting = true
             connectionStatus = "🔄 Открытие SSH..."
-            
-            await sshClient.connect()
-            connectionStatus = sshClient.connectionStatus
-            
+
+            let creds = credentials ?? ConnectionCredentials(username: "", password: "", saveCredentials: false)
+            let client = SSHClient(host: device.ip, username: creds.username, password: creds.password, port: port)
+            await client.connect()
+            connectionStatus = client.connectionStatus
+
             try? await Task.sleep(nanoseconds: 500_000_000)
             isConnecting = false
-            
+
             try? await Task.sleep(nanoseconds: 500_000_000)
             dismiss()
         }
     }
-    
-    private func connectRDP() {
+
+    private func connectRDP(port: UInt16) {
         Task { @MainActor in
             isConnecting = true
             connectionStatus = "🖥️ Открытие RDP..."
-            
+
             guard let creds = credentials else {
                 connectionStatus = "❌ Требуются учётные данные"
                 isConnecting = false
                 return
             }
-            
+
             // ✅ ВСТРОЕННЫЙ СПОСОБ: открываем rdp:// URL
-            let rdpURL = "rdp://full%20address=s:\(device.ip):3389&username=s:\(creds.username)"
-            
+            let rdpURL = "rdp://full%20address=s:\(device.ip):\(port)&username=s:\(creds.username)"
+
             if let url = URL(string: rdpURL) {
                 NSWorkspace.shared.open(url)
                 connectionStatus = "✅ RDP открыт (Microsoft Remote Desktop)"
             } else {
                 connectionStatus = "❌ Ошибка создания RDP URL"
             }
-            
+
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             isConnecting = false
             dismiss()
         }
     }
-    
-    private func connectVNC() {
+
+    private func connectVNC(port: UInt16) {
         Task { @MainActor in
             isConnecting = true
             connectionStatus = "🖥️ Открытие VNC..."
-            
-            await vncClient.connect()
-            connectionStatus = vncClient.connectionStatus
-            
+
+            let creds = credentials ?? ConnectionCredentials(username: "", password: "", saveCredentials: false)
+            let client = VNCClient(host: device.ip, username: creds.username, password: creds.password, port: port)
+            await client.connect()
+            connectionStatus = client.connectionStatus
+
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             isConnecting = false
             dismiss()
         }
     }
-    
-    private func connectFTP() {
+
+    private func connectFTP(service: ServiceType) {
         Task { @MainActor in
             isConnecting = true
-            connectionStatus = "📁 Открытие FTP..."
-            
-            await ftpClient.connect()
-            connectionStatus = ftpClient.connectionStatus
+            connectionStatus = service == .sftp ? "📁 Открытие SFTP..." : "📁 Открытие FTP..."
+
+            let creds = credentials ?? ConnectionCredentials(username: "", password: "", saveCredentials: false)
+            let client = FTPClient(
+                host: device.ip,
+                username: creds.username,
+                password: creds.password,
+                port: service.port,
+                useSFTP: service == .sftp
+            )
+            await client.connect()
+            connectionStatus = client.connectionStatus
             
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             isConnecting = false
