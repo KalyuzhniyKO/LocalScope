@@ -1,201 +1,43 @@
-# 🚀 LOCAL SCOPE - ПОЛНОЕ ИСПРАВЛЕНИЕ ВСЕХ БАГОВ
+# Local Scope
 
-## ✅ ВСЕ ИСПРАВЛЕННЫЕ ПРОБЛЕМЫ:
+Local Scope is a macOS SwiftUI network utility for:
+- local subnet host discovery,
+- basic port presence checks for common remote-access protocols,
+- launching system/external clients for remote connections.
 
-### 🔴 БАГ #1: Broadcast адрес 192.168.0.255
-**Проблема:** Появлялся в списке устройство с IP 192.168.0.255 и MAC ff:ff:ff:ff:ff:ff  
-**Исправлено:** ✅ Добавлены фильтры в `NetworkScanner.swift`:
-- Фильтр broadcast IP (*.255)
-- Фильтр network address (*.0)
-- Фильтр broadcast MAC (ff:ff:ff:ff:ff:ff)
-- Проверка валидности MAC адреса
+This README reflects the **actual implementation in source code** as of March 29, 2026.
 
-### 🔴 БАГ #2: Медленное сканирование
-**Проблема:** Сканирование занимало слишком много времени  
-**Исправлено:** ✅ Параллельное сканирование:
-- Ping всей подсети параллельно (~2 секунды)
-- Параллельное сканирование портов всех устройств
-- Оптимизированные таймауты
+## Current Feature Status (source-truth)
 
-### 🔴 БАГ #3: Не все устройства находятся
-**Проблема:** Некоторые устройства в сети не показывались  
-**Исправлено:** ✅ Улучшена логика парсинга ARP таблицы
-- Убраны лишние фильтры
-- Правильная проверка подсети
-- Более точный парсинг вывода `arp -a`
+| Area | Status | What is implemented now | Gaps / limits |
+|---|---|---|---|
+| Network scanning | **Partial, functional** | Gets local IPv4 from `en0/en1`, pings `/24`, parses `arp -a`, then probes ports 22/3389/21/5900 using `NWConnection`. | Hardcoded `/24`, interface assumptions (`en0/en1` only), no CIDR/range selection, no IPv6, no hostnames from DNS/mDNS. |
+| SSH | **Launcher only** | Opens `Terminal.app` and runs `ssh user@host -p port`. | No in-app SSH session, password is not injected/used, no key management, no connection success verification. |
+| FTP/SFTP | **Launcher only** | Opens `Terminal.app` with `ftp host port` or `sftp -P port user@host`. | No in-app file browser/transfer pipeline, saved password not used in command, protocol tab is FTP-focused while SFTP is only partially represented in model/UI logic. |
+| RDP | **Launcher-level / weak integration** | UI builds `rdp://` URL and asks macOS to open it; there is also a TCP reachability test client class. | No guaranteed client handling on macOS, no in-app RDP session, reachability test is not wired into user flow, credentials are not securely/fully integrated. |
+| VNC | **Launcher only** | Opens `vnc://` URL via `NSWorkspace` (Screen Sharing/external handler). | No embedded VNC renderer/session handling, no robust auth/session state tracking. |
 
-### 🔴 БАГ #4: Лишняя вкладка "Sessions"
-**Проблема:** Была отдельная вкладка Sessions, хотя сессии должны быть в SSH/RDP/FTP  
-**Исправлено:** ✅ Убрана вкладка Sessions из ContentView
-- Сессии теперь встроены в соответствующие вкладки
-- Метод `devices(for:)` фильтрует устройства по типу сервиса
+## Architecture Summary
 
-### 🔴 БАГ #5: FTP зависает
-**Проблема:** При подключении по FTP ничего не происходило  
-**Исправлено:** ✅ Исправлены клиенты подключения:
-- FTPClient правильно открывает Terminal
-- Добавлен индикатор подключения
-- Правильный async/await flow
+- `NetworkScannerViewModel` orchestrates scanning, history, and credentials persistence.
+- `NetworkScanner` performs local IP detection, subnet ping warm-up, and ARP parsing.
+- `PortScanner` checks if key ports are reachable.
+- Protocol client classes (`SSHClient`, `FTPClient`, `RDPClient`, `VNCClient`) mostly wrap OS-level launch behavior.
+- `UniversalTerminalView` acts as a connection launcher UI, not a terminal/desktop implementation.
 
-### 🔴 БАГ #6: Предложения установки FreeRDP
-**Проблема:** Приложение предлагало установить FreeRDP/RDesktop  
-**Исправлено:** ✅ Убраны все предложения:
-- ТОЛЬКО встроенные методы macOS
-- RDP через `rdp://` URL
-- SSH через Terminal.app
-- VNC через Screen Sharing
-- FTP через Terminal.app
+## Important Reality Notes
 
-### 🔴 БАГ #7: Кнопки в UniversalTerminalView не работали
-**Проблема:** Кнопки SSH/RDP/VNC/FTP ничего не делали  
-**Исправлено:** ✅ Все кнопки работают:
-- Правильный вызов методов подключения
-- Добавлен визуальный feedback
-- Автоматическое закрытие окна после подключения
+1. "Connected" statuses in protocol clients mostly mean "launch command/URL was issued", not that a session was fully negotiated.
+2. Credentials are stored in `UserDefaults` for convenience, not in Keychain.
+3. The app is macOS-specific and depends on system tools/apps (`ping`, `arp`, Terminal, URL handlers).
 
----
+## Documentation
 
-## 📦 15 ОБНОВЛЕННЫХ ФАЙЛОВ
+- Source-truth audit report: `Docs/LocalScope_Truth_Report.md`
 
-### 🔧 Протоколы (4 файла)
-1. **FTPClient.swift** - исправлен async/await
-2. **RDPClient.swift** - исправлен async/await
-3. **SSHClient.swift** - исправлен async/await
-4. **VNCClient.swift** - исправлен async/await
+## Recommended Next Priorities
 
-### 🎯 ViewModel (1 файл)
-5. **NetworkScannerViewModel.swift** - ✨ убрана Sessions, добавлен `devices(for:)`
-
-### 📊 Модели (4 файла)
-6. **Device.swift** - без изменений
-7. **ServiceType.swift** - без изменений
-8. **ConnectionCredentials.swift** - без изменений
-9. **SavedSession.swift** - без изменений
-
-### 🔌 Сервисы (4 файла)
-10. **NetworkScanner.swift** - ✨ исправлены фильтры broadcast
-11. **PortScanner.swift** - без изменений
-12. **DeviceDetector.swift** - без изменений
-13. **ConnectionManager.swift** - без изменений
-
-### 🖼️ Views (2 файла)
-14. **ContentView.swift** - ✨ убрана вкладка Sessions
-15. **UniversalTerminalView.swift** - ✨ только встроенные методы, убраны предложения FreeRDP
-
----
-
-## 🛠️ УСТАНОВКА
-
-### Шаг 1: Замените ВСЕ файлы
-Скачайте все 15 файлов и замените в проекте
-
-### Шаг 2: Clean Build
-```
-Cmd+Shift+K (Clean Build Folder)
-Cmd+B (Build)
-```
-
-### Шаг 3: Тест
-1. Запустите приложение
-2. Нажмите "Start Scan"
-3. Проверьте что:
-   - ✅ НЕТ 192.168.0.255 в списке
-   - ✅ Сканирование быстрое (~5-10 секунд)
-   - ✅ Все устройства найдены
-   - ✅ НЕТ вкладки Sessions
-   - ✅ Подключения работают
-
----
-
-## 🎯 ЧТО ТЕПЕРЬ РАБОТАЕТ
-
-### ✅ NetworkScanner
-```swift
-// Фильтрация в parseARPTable:
-guard ipMatch != excludeIP,
-      !ipMatch.hasSuffix(".255"),        // ✅ НЕТ broadcast
-      !ipMatch.hasSuffix(".0"),          // ✅ НЕТ network address
-      macAddress != "ff:ff:ff:ff:ff:ff", // ✅ НЕТ broadcast MAC
-      macAddress.count > 5,              // ✅ Валидный MAC
-      ipMatch.starts(with: subnet) else { continue }
-```
-
-### ✅ Параллельное сканирование
-```swift
-// Быстрый пинг всей подсети
-await networkScanner.quickPingSubnet(subnet: subnet)
-
-// Параллельное сканирование портов
-foundDevices = await portScanner.scanServicesForDevices(foundDevices)
-```
-
-### ✅ Встроенные подключения
-```swift
-// SSH → Terminal.app
-sshClient.connect()  // открывает Terminal
-
-// RDP → rdp:// URL
-let rdpURL = "rdp://full%20address=s:\(ip):3389"
-NSWorkspace.shared.open(url)
-
-// VNC → Screen Sharing
-let vncURL = "vnc://\(ip):5900"
-NSWorkspace.shared.open(url)
-
-// FTP → Terminal + sftp/ftp
-ftpClient.connect()  // открывает Terminal с ftp/sftp
-```
-
-### ✅ Без Sessions tab
-```swift
-// В ContentView только 5 вкладок:
-1. Network Map
-2. SSH (с сессиями SSH)
-3. RDP (с сессиями RDP)
-4. FTP (с сессиями FTP)
-5. History
-6. Settings
-```
-
----
-
-## 📋 СПИСОК ВСЕХ ФАЙЛОВ
-
-**ЗАМЕНИТЕ ВСЕ 15 ФАЙЛОВ!**
-
-✨ = Критические изменения
-
-1. ConnectionCredentials.swift
-2. ConnectionManager.swift
-3. ContentView.swift ✨ (без Sessions)
-4. Device.swift
-5. DeviceDetector.swift
-6. FTPClient.swift ✨
-7. NetworkScanner.swift ✨ (фильтры broadcast)
-8. NetworkScannerViewModel.swift ✨ (devices(for:))
-9. PortScanner.swift
-10. RDPClient.swift ✨
-11. SSHClient.swift ✨
-12. SavedSession.swift
-13. ServiceType.swift
-14. UniversalTerminalView.swift ✨ (только встроенные)
-15. VNCClient.swift ✨
-
----
-
-## 🎉 РЕЗУЛЬТАТ
-
-После замены файлов:
-- ❌ НЕТ 192.168.0.255
-- ❌ НЕТ ff:ff:ff:ff:ff:ff
-- ✅ Быстрое сканирование (5-10 сек)
-- ✅ Все устройства находятся
-- ✅ НЕТ вкладки Sessions
-- ✅ FTP подключается
-- ✅ Все кнопки работают
-- ✅ ТОЛЬКО встроенные методы
-
----
-
-**ВСЕ БАГИ ИСПРАВЛЕНЫ! 🚀**
-В конечном итоге работает но не правильно. Сканирование выполняет но с остальными функциями проблема конект по РДП и по ССШ как и по ВНС не работают. Функции прописаны но с косяком. Пока что работаем над исправлением. Это последняя версия которая запускается без ошибок. 
+1. Decide product direction per protocol: launcher utility vs true integrated client.
+2. If keeping launcher mode, simplify terminology ("Open client" vs "Connected").
+3. Move secrets to Keychain and harden credential flow.
+4. Add scan settings (interface/subnet selection) and improve discovery fidelity.
