@@ -60,26 +60,15 @@ actor PortScanner {
                 using: .tcp
             )
             
-            var hasResumed = false
+            let completion = PortScanCompletion()
             
             connection.stateUpdateHandler = { state in
-                guard !hasResumed else { return }
-                
                 switch state {
                 case .ready:
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: true)
+                    completion.resumeOnce(connection: connection, continuation: continuation, returning: true)
                     
-                case .failed:
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: false)
-                    
-                case .waiting:
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: false)
+                case .failed, .waiting:
+                    completion.resumeOnce(connection: connection, continuation: continuation, returning: false)
                     
                 default:
                     break
@@ -89,12 +78,30 @@ actor PortScanner {
             connection.start(queue: .global())
             
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                if !hasResumed {
-                    hasResumed = true
-                    connection.cancel()
-                    continuation.resume(returning: false)
-                }
+                completion.resumeOnce(connection: connection, continuation: continuation, returning: false)
             }
         }
+    }
+}
+
+private final class PortScanCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didResume = false
+
+    func resumeOnce(
+        connection: NWConnection,
+        continuation: CheckedContinuation<Bool, Never>,
+        returning result: Bool
+    ) {
+        lock.lock()
+        guard !didResume else {
+            lock.unlock()
+            return
+        }
+        didResume = true
+        lock.unlock()
+
+        connection.cancel()
+        continuation.resume(returning: result)
     }
 }
