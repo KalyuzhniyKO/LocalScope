@@ -14,7 +14,8 @@ import SwiftUI
 private struct IndexedDevice: Identifiable {
     let index: Int
     let device: Device
-    var id: UUID { device.id }
+
+    var id: String { "\(index)-\(device.id)-\(device.ip)" }
 }
 
 struct InteractiveNetworkCanvas: View {
@@ -37,36 +38,36 @@ struct InteractiveNetworkCanvas: View {
                 }
                 
                 ForEach(indexedDevices) { indexedDevice in
-                    let device = indexedDevice.device
+                    let contextDevice = indexedDevice.device
                     let position = calculatePosition(index: indexedDevice.index, total: visibleDevices.count, center: center, radius: radius)
                     
-                    DeviceNode(device: device)
+                    DeviceNode(device: contextDevice)
                         .frame(width: 110, height: 85)
                         .contentShape(Rectangle())
                         // ✅ ИСПРАВЛЕНО: Используем simultaneousGesture
                         .simultaneousGesture(
                             TapGesture(count: 2)
                                 .onEnded {
-                                    print("✅ Double click on: \(device.name)")
-                                    handleDoubleClick(device)
+                                    print("✅ Double click on: \(contextDevice.name)")
+                                    handleDoubleClick(contextDevice)
                                 }
                         )
                         .simultaneousGesture(
                             TapGesture(count: 1)
                                 .onEnded {
-                                    print("Single click on: \(device.name)")
+                                    print("Single click on: \(contextDevice.name)")
                                 }
                         )
                         .contextMenu {
                             // ✅ КОПИРОВАТЬ IP
                             Button {
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(device.ip, forType: .string)
+                                NSPasteboard.general.setString(contextDevice.ip, forType: .string)
                             } label: {
-                                Label("Копировать IP: \(device.ip)", systemImage: "doc.on.doc")
+                                Label("Копировать IP: \(contextDevice.ip)", systemImage: "doc.on.doc")
                             }
                             
-                            if let mac = device.mac {
+                            if let mac = contextDevice.mac {
                                 Button {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(mac, forType: .string)
@@ -77,16 +78,16 @@ struct InteractiveNetworkCanvas: View {
                             
                             Divider()
                             
-                            if device.availableServices.isEmpty {
+                            if contextDevice.availableServices.isEmpty {
                                 Text("Сканирование портов...")
                                     .foregroundStyle(.secondary)
                             } else {
                                 // ✅ ПОДКЛЮЧИТЬСЯ
                                 Section("Подключиться") {
-                                    ForEach(device.availableServices, id: \.self) { service in
+                                    ForEach(contextDevice.availableServices, id: \.self) { service in
                                         Button {
                                             print("✅ Connect via \(service.rawValue)")
-                                            onDeviceConnect?(device, service)
+                                            onDeviceConnect?(contextDevice, service)
                                         } label: {
                                             Label(service.rawValue, systemImage: service.icon)
                                         }
@@ -97,12 +98,12 @@ struct InteractiveNetworkCanvas: View {
                                 
                                 // ✅ ДОБАВИТЬ/УБРАТЬ ИЗ ИЗБРАННОГО
                                 Section("Избранное") {
-                                    ForEach(device.availableServices, id: \.self) { service in
-                                        if !device.favoriteServices.contains(service) {
+                                    ForEach(contextDevice.availableServices, id: \.self) { service in
+                                        if !contextDevice.favoriteServices.contains(service) {
                                             // НЕ В ИЗБРАННОМ - ПОКАЗАТЬ ДОБАВИТЬ
                                             Button {
                                                 print("✅ Add to favorites: \(service.rawValue)")
-                                                onAddToFavorites?(device, service)
+                                                onAddToFavorites?(contextDevice, service)
                                             } label: {
                                                 Label("★ Добавить \(service.rawValue)", systemImage: "star")
                                             }
@@ -110,7 +111,7 @@ struct InteractiveNetworkCanvas: View {
                                             // УЖЕ В ИЗБРАННОМ - ПОКАЗАТЬ УБРАТЬ
                                             Button {
                                                 print("✅ Remove from favorites: \(service.rawValue)")
-                                                onAddToFavorites?(device, service)
+                                                onAddToFavorites?(contextDevice, service)
                                             } label: {
                                                 Label("☆ Убрать \(service.rawValue)", systemImage: "star.fill")
                                                     .foregroundStyle(.orange)
